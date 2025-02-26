@@ -6,18 +6,18 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 import ffmpeg
 
-# Lista de extensiones de video soportadas
+# Supported video file extensions
 VIDEO_EXTENSIONS = ['.mp4', '.avi', '.mov', '.mkv', '.flv', '.wmv', '.webm', '.m4v', '.mpg', '.mpeg', '.3gp']
 
 
 def is_video_file(file_path):
-    """Verifica si un archivo es un video según su extensión"""
+    """Checks if a file is a video based on its extension"""
     ext = os.path.splitext(file_path)[1].lower()
     return ext in VIDEO_EXTENSIONS
 
 
 class DragDropListWidget(QListWidget):
-    """ListWidget personalizado para arrastrar y soltar archivos"""
+    """Custom ListWidget for dragging and dropping files"""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -54,7 +54,7 @@ class ConversionThread(QThread):
         self.running = True
 
     def get_crf(self):
-        """Obtiene el valor CRF según la calidad seleccionada"""
+        """Gets the CRF value based on the selected quality"""
         return {
             "Baja": "28",
             "Media": "23",
@@ -68,14 +68,14 @@ class ConversionThread(QThread):
                 if not self.running:
                     break
 
-                # Generar nombre de archivo de salida
+                # Generate output file name
                 base_name = os.path.splitext(os.path.basename(file_path))[0]
                 output_path = os.path.join(self.output_folder, f"{base_name}.mp4")
 
-                # Actualizar interfaz
+                # Update UI
                 self.progress_updated.emit(file_path, int((index / total_files) * 100))
 
-                # Configurar parámetros de conversión
+                # Configure conversion parameters
                 crf = self.get_crf()
 
                 try:
@@ -95,7 +95,7 @@ class ConversionThread(QThread):
                 except ffmpeg.Error as e:
                     self.error_occurred.emit(f"Error al convertir {file_path}: {e.stderr.decode()}")
 
-                # Actualizar progreso
+                # Update progress
                 self.progress_updated.emit(file_path, int(((index + 1) / total_files) * 100))
 
             self.progress_updated.emit("Conversión completada", 100)
@@ -115,7 +115,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Conversor de Video")
 
     def setup_ui(self):
-        # Crear widgets
+        # Create widgets
         self.list_widget = DragDropListWidget()
         self.quality_combo = QComboBox()
         self.quality_combo.addItems(["Baja", "Media", "Alta"])
@@ -125,7 +125,7 @@ class MainWindow(QMainWindow):
         self.progress_bar = QProgressBar()
         self.lbl_status = QLabel("Estado: Listo")
 
-        # Configurar layout
+        # Configure layout
         layout = QVBoxLayout()
         layout.addWidget(QLabel("Archivos a convertir:"))
         layout.addWidget(self.list_widget)
@@ -145,7 +145,7 @@ class MainWindow(QMainWindow):
         container.setLayout(layout)
         self.setCentralWidget(container)
 
-        # Conectar señales
+        # Connect signals
         self.btn_input_folder.clicked.connect(self.select_input_folder)
         self.btn_output_folder.clicked.connect(self.select_output_folder)
         self.btn_start.clicked.connect(self.toggle_conversion)
