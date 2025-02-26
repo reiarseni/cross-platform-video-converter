@@ -188,7 +188,6 @@ class ConversionThread(QThread):
     def stop(self):
         self.running = False
 
-
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -196,6 +195,7 @@ class MainWindow(QMainWindow):
         self.conversion_thread = None
         self.setup_ui()
         self.setWindowTitle("Conversor de Video")
+        self.load_last_list()
 
     def setup_ui(self):
         # Create widgets
@@ -238,6 +238,15 @@ class MainWindow(QMainWindow):
         self.btn_input_folder.clicked.connect(self.select_input_folder)
         self.btn_output_folder.clicked.connect(self.select_output_folder)
         self.btn_start.clicked.connect(self.toggle_conversion)
+
+    def load_last_list(self):
+        list_file = os.path.join(os.path.dirname(__file__), 'last_list.txt')
+        if os.path.exists(list_file):
+            with open(list_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    file_path = line.strip()
+                    if file_path and os.path.exists(file_path) and is_video_file(file_path):
+                        self.list_widget.add_file(file_path)
 
     def select_input_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Seleccionar carpeta de entrada")
@@ -325,6 +334,17 @@ class MainWindow(QMainWindow):
         self.quality_combo.setEnabled(True)
         #self.list_widget.setEnabled(True)
         self.conversion_thread = None
+
+    def closeEvent(self, event):
+        list_file = os.path.join(os.path.dirname(__file__), 'last_list.txt')
+        with open(list_file, 'w', encoding='utf-8') as f:
+            for row in range(self.list_widget.rowCount()):
+                item = self.list_widget.item(row, 0)
+                if item:
+                    file_path = item.data(Qt.UserRole)
+                    if file_path:
+                        f.write(file_path + "\n")
+        event.accept()
 
     def showEvent(self, event):
         super().showEvent(event)
