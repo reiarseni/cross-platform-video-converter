@@ -267,6 +267,11 @@ class MainWindow(QMainWindow):
         if self.conversion_thread and self.conversion_thread.isRunning():
             self.conversion_thread.stop()
             self.btn_start.setText("Iniciar conversión")
+            self.btn_start.setStyleSheet("background-color: green; color: white;")
+            self.btn_input_folder.setEnabled(True)
+            self.btn_output_folder.setEnabled(True)
+            self.quality_combo.setEnabled(True)
+            #self.list_widget.setEnabled(True)
             self.conversion_thread = None
         else:
             if not self.output_folder:
@@ -290,6 +295,11 @@ class MainWindow(QMainWindow):
             self.conversion_thread.finished.connect(self.conversion_finished)
 
             self.btn_start.setText("Detener conversión")
+            self.btn_start.setStyleSheet("background-color: yellow; color: black;")
+            self.btn_input_folder.setEnabled(False)
+            self.btn_output_folder.setEnabled(False)
+            self.quality_combo.setEnabled(False)
+            #self.list_widget.setEnabled(False)
             self.progress_bar.setValue(0)
             self.file_progress_bar.setValue(0)
             self.conversion_thread.start()
@@ -306,7 +316,12 @@ class MainWindow(QMainWindow):
 
     def conversion_finished(self):
         self.btn_start.setText("Iniciar conversión")
+        self.btn_start.setStyleSheet("background-color: green; color: white;")
         self.lbl_status.setText("Estado: Conversión completada")
+        self.btn_input_folder.setEnabled(True)
+        self.btn_output_folder.setEnabled(True)
+        self.quality_combo.setEnabled(True)
+        #self.list_widget.setEnabled(True)
         self.conversion_thread = None
 
     def showEvent(self, event):
