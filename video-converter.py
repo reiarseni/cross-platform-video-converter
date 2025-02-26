@@ -75,7 +75,7 @@ class DragDropTableWidget(QTableWidget):
     def dropEvent(self, event):
         files = [url.toLocalFile() for url in event.mimeData().urls()]
         valid_files = [f for f in files if os.path.isfile(f) and is_video_file(f)]
-        existing_files = [self.item(row, 0).text() for row in range(self.rowCount())
+        existing_files = [self.item(row, 0).data(Qt.UserRole) for row in range(self.rowCount())
                           if self.item(row, 0) is not None]
         for file in valid_files:
             if file not in existing_files:
@@ -93,11 +93,13 @@ class DragDropTableWidget(QTableWidget):
         formatted_size = format_size(file_size)
         row = self.rowCount()
         self.insertRow(row)
-        self.setItem(row, 0, QTableWidgetItem(file_path))
+        # Store full file path in user role and display only the basename
+        item = QTableWidgetItem(os.path.basename(file_path))
+        item.setData(Qt.UserRole, file_path)
+        self.setItem(row, 0, item)
         self.setItem(row, 1, QTableWidgetItem(format_info))
         self.setItem(row, 2, QTableWidgetItem(formatted_duration))
         self.setItem(row, 3, QTableWidgetItem(formatted_size))
-
 
 class ConversionThread(QThread):
     progress_updated = pyqtSignal(str, int)
@@ -251,7 +253,7 @@ class MainWindow(QMainWindow):
                 if is_video_file(file_path):
                     video_files.append(file_path)
 
-        existing_files = [self.list_widget.item(row, 0).text() for row in range(self.list_widget.rowCount())
+        existing_files = [self.list_widget.item(row, 0).data(Qt.UserRole) for row in range(self.list_widget.rowCount())
                           if self.list_widget.item(row, 0) is not None]
         for file in video_files:
             if file not in existing_files:
@@ -281,7 +283,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "Error", "Agrega archivos para convertir")
                 return
 
-            files = [self.list_widget.item(row, 0).text() for row in range(self.list_widget.rowCount())
+            files = [self.list_widget.item(row, 0).data(Qt.UserRole) for row in range(self.list_widget.rowCount())
                      if self.list_widget.item(row, 0) is not None]
             self.conversion_thread = ConversionThread(
                 files,
