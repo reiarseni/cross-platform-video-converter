@@ -1,5 +1,6 @@
 import os
 import sys
+import xml.etree.ElementTree as ET
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QTableWidget, QTableWidgetItem, QPushButton, QComboBox, QProgressBar, QLabel,
                              QFileDialog, QMessageBox)
@@ -193,9 +194,10 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.output_folder = None
         self.conversion_thread = None
+        self.next_index = 0  # Next video index to convert
         self.setup_ui()
         self.setWindowTitle("Conversor de Video")
-        self.load_last_list()
+        self.load_last_state()
 
     def setup_ui(self):
         # Create widgets
@@ -239,14 +241,45 @@ class MainWindow(QMainWindow):
         self.btn_output_folder.clicked.connect(self.select_output_folder)
         self.btn_start.clicked.connect(self.toggle_conversion)
 
-    def load_last_list(self):
-        list_file = os.path.join(os.path.dirname(__file__), 'last_list.txt')
-        if os.path.exists(list_file):
-            with open(list_file, 'r', encoding='utf-8') as f:
-                for line in f:
-                    file_path = line.strip()
-                    if file_path and os.path.exists(file_path) and is_video_file(file_path):
-                        self.list_widget.add_file(file_path)
+    def load_last_state(self):
+        state_file = os.path.join(os.path.dirname(__file__), 'last_state.xml')
+        if os.path.exists(state_file):
+            try:
+                tree = ET.parse(state_file)
+                root = tree.getroot()
+                # Load videos
+                self.list_widget.setRowCount(0)
+                videos = root.find('videos')
+                if videos is not None:
+                    for video in videos.findall('video'):
+                        file_path = video.text.strip()
+                        if file_path and os.path.exists(file_path) and is_video_file(file_path):
+                            self.list_widget.add_file(file_path)
+                # Load output folder
+                out_elem = root.find('output_folder')
+                if out_elem is not None:
+                    folder = out_elem.text.strip()
+                    if folder and os.path.isdir(folder):
+                        self.output_folder = folder
+                        self.lbl_status.setText(f"Carpeta de salida: {folder}")
+                # Load quality
+                quality_elem = root.find('quality')
+                if quality_elem is not None:
+                    quality = quality_elem.text.strip()
+                    index = self.quality_combo.findText(quality)
+                    if index != -1:
+                        self.quality_combo.setCurrentIndex(index)
+                # Load next index and select that row
+                index_elem = root.find('next_index')
+                if index_elem is not None:
+                    try:
+                        self.next_index = int(index_elem.text.strip())
+                    except ValueError:
+                        self.next_index = 0
+                if self.next_index < self.list_widget.rowCount():
+                    self.list_widget.setCurrentCell(self.next_index, 0)
+            except Exception:
+                pass
 
     def select_input_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Seleccionar carpeta de entrada")
@@ -256,9 +289,9 @@ class MainWindow(QMainWindow):
 
     def add_video_files_from_folder(self, folder):
         video_files = []
-        for root, _, files in os.walk(folder):
+        for root_dir, _, files in os.walk(folder):
             for file in files:
-                file_path = os.path.join(root, file)
+                file_path = os.path.join(root_dir, file)
                 if is_video_file(file_path):
                     video_files.append(file_path)
 
@@ -321,6 +354,17 @@ class MainWindow(QMainWindow):
 
     def update_file_progress(self, current_file, progress):
         self.file_progress_bar.setValue(progress)
+        # Update next_index if file conversion completes
+        if progress == 100:
+            for row in range(self.list_widget.rowCount()):
+                item = self.list_widget.item(row, 0)
+                if item and item.data(Qt.UserRole) == current_file:
+                    new_index = row + 1
+                    if new_index < self.list_widget.rowCount():
+                        self.next_index = new_index
+                    else:
+                        self.next_index = row
+                    break
 
     def show_error(self, message):
         QMessageBox.critical(self, "Error", message)
@@ -336,14 +380,23 @@ class MainWindow(QMainWindow):
         self.conversion_thread = None
 
     def closeEvent(self, event):
-        list_file = os.path.join(os.path.dirname(__file__), 'last_list.txt')
-        with open(list_file, 'w', encoding='utf-8') as f:
-            for row in range(self.list_widget.rowCount()):
-                item = self.list_widget.item(row, 0)
-                if item:
-                    file_path = item.data(Qt.UserRole)
-                    if file_path:
-                        f.write(file_path + "\n")
+        # Save state in XML
+        root = ET.Element("app_state")
+        videos_elem = ET.SubElement(root, "videos")
+        for row in range(self.list_widget.rowCount()):
+            item = self.list_widget.item(row, 0)
+            if item:
+                video_elem = ET.SubElement(videos_elem, "video")
+                video_elem.text = item.data(Qt.UserRole)
+        out_elem = ET.SubElement(root, "output_folder")
+        out_elem.text = self.output_folder if self.output_folder else ""
+        quality_elem = ET.SubElement(root, "quality")
+        quality_elem.text = self.quality_combo.currentText()
+        index_elem = ET.SubElement(root, "next_index")
+        index_elem.text = str(self.next_index)
+        tree = ET.ElementTree(root)
+        state_file = os.path.join(os.path.dirname(__file__), 'last_state.xml')
+        tree.write(state_file, encoding='utf-8', xml_declaration=True)
         event.accept()
 
     def showEvent(self, event):
