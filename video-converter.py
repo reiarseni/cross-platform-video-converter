@@ -29,6 +29,17 @@ def get_video_codec(file_path):
         return "Unknown"
 
 
+def get_video_duration(file_path):
+    """Retrieves the duration of the video file in seconds using ffmpeg.probe"""
+    try:
+        probe = ffmpeg.probe(file_path)
+        format_info = probe.get('format', {})
+        duration = float(format_info.get('duration', 0))
+        return duration
+    except Exception:
+        return 0
+
+
 class DragDropTableWidget(QTableWidget):
     """Custom TableWidget for dragging and dropping files"""
 
@@ -70,6 +81,7 @@ class DragDropTableWidget(QTableWidget):
 
 class ConversionThread(QThread):
     progress_updated = pyqtSignal(str, int)
+    file_progress_updated = pyqtSignal(str, int)
     error_occurred = pyqtSignal(str)
 
     def __init__(self, files, output_folder, quality):
@@ -98,30 +110,53 @@ class ConversionThread(QThread):
                 base_name = os.path.splitext(os.path.basename(file_path))[0]
                 output_path = os.path.join(self.output_folder, f"{base_name}.mp4")
 
-                # Update UI
+                # Update global progress before starting file conversion
                 self.progress_updated.emit(file_path, int((index / total_files) * 100))
 
-                # Configure conversion parameters
-                crf = self.get_crf()
+                # Get video duration for current file
+                duration = get_video_duration(file_path)
+                self.file_progress_updated.emit(file_path, 0)
 
                 try:
-                    (
+                    process = (
                         ffmpeg
                         .input(file_path)
                         .output(output_path,
                                 vcodec='libx264',
                                 preset='slow',
-                                crf=crf,
+                                crf=self.get_crf(),
                                 acodec='aac',
                                 audio_bitrate='192k',
-                                movflags='+faststart')
+                                movflags='+faststart',
+                                progress='pipe:1')
                         .overwrite_output()
-                        .run(quiet=True)
+                        .run_async(pipe_stdout=True, pipe_stderr=True)
                     )
                 except ffmpeg.Error as e:
                     self.error_occurred.emit(f"Error converting {file_path}: {e.stderr.decode()}")
+                    continue
 
-                # Update progress
+                # Read progress information from ffmpeg output
+                while True:
+                    line = process.stdout.readline()
+                    if not line:
+                        break
+                    line = line.decode('utf-8').strip()
+                    if line.startswith("out_time_ms="):
+                        try:
+                            out_time_ms = int(line.split("=")[1])
+                            if duration > 0:
+                                percent_file = min(100, int((out_time_ms / (duration * 1000000)) * 100))
+                                self.file_progress_updated.emit(file_path, percent_file)
+                        except Exception:
+                            pass
+                    if line.startswith("progress="):
+                        if line.split("=")[1] == "end":
+                            self.file_progress_updated.emit(file_path, 100)
+                            break
+                process.wait()
+
+                # Update global progress after file conversion
                 self.progress_updated.emit(file_path, int(((index + 1) / total_files) * 100))
 
             self.progress_updated.emit("Conversion completed", 100)
@@ -148,7 +183,8 @@ class MainWindow(QMainWindow):
         self.btn_input_folder = QPushButton("Seleccionar carpeta de entrada")
         self.btn_output_folder = QPushButton("Seleccionar carpeta de salida")
         self.btn_start = QPushButton("Iniciar conversión")
-        self.progress_bar = QProgressBar()
+        self.progress_bar = QProgressBar()  # Global progress
+        self.file_progress_bar = QProgressBar()  # File conversion progress
         self.lbl_status = QLabel("Estado: Listo")
 
         # Configure layout
@@ -165,6 +201,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.quality_combo)
         layout.addWidget(self.lbl_status)
         layout.addWidget(self.progress_bar)
+        layout.addWidget(self.file_progress_bar)
         layout.addWidget(self.btn_start)
 
         container = QWidget()
@@ -224,16 +261,21 @@ class MainWindow(QMainWindow):
             )
 
             self.conversion_thread.progress_updated.connect(self.update_progress)
+            self.conversion_thread.file_progress_updated.connect(self.update_file_progress)
             self.conversion_thread.error_occurred.connect(self.show_error)
             self.conversion_thread.finished.connect(self.conversion_finished)
 
             self.btn_start.setText("Detener conversión")
             self.progress_bar.setValue(0)
+            self.file_progress_bar.setValue(0)
             self.conversion_thread.start()
 
     def update_progress(self, current_file, progress):
         self.lbl_status.setText(f"Procesando: {os.path.basename(current_file)}")
         self.progress_bar.setValue(progress)
+
+    def update_file_progress(self, current_file, progress):
+        self.file_progress_bar.setValue(progress)
 
     def show_error(self, message):
         QMessageBox.critical(self, "Error", message)
