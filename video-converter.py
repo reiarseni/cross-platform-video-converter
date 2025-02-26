@@ -1,7 +1,7 @@
 import os
 import sys
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-                             QListWidget, QPushButton, QComboBox, QProgressBar, QLabel,
+                             QTableWidget, QTableWidgetItem, QPushButton, QComboBox, QProgressBar, QLabel,
                              QFileDialog, QMessageBox)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 import ffmpeg
@@ -16,14 +16,30 @@ def is_video_file(file_path):
     return ext in VIDEO_EXTENSIONS
 
 
-class DragDropListWidget(QListWidget):
-    """Custom ListWidget for dragging and dropping files"""
+def get_video_codec(file_path):
+    """Detects the video codec of the given file using ffmpeg.probe"""
+    try:
+        probe = ffmpeg.probe(file_path)
+        video_streams = [stream for stream in probe['streams'] if stream.get('codec_type') == 'video']
+        if video_streams:
+            return video_streams[0].get('codec_name', 'Unknown')
+        else:
+            return "Unknown"
+    except Exception:
+        return "Unknown"
+
+
+class DragDropTableWidget(QTableWidget):
+    """Custom TableWidget for dragging and dropping files"""
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setColumnCount(2)
+        self.setHorizontalHeaderLabels(["File", "Format"])
         self.setAcceptDrops(True)
-        self.setDragDropMode(QListWidget.DropOnly)
-        self.setSelectionMode(QListWidget.ExtendedSelection)
+        self.setDragDropMode(QTableWidget.DropOnly)
+        self.setSelectionBehavior(QTableWidget.SelectRows)
+        self.setSelectionMode(QTableWidget.ExtendedSelection)
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
@@ -34,12 +50,22 @@ class DragDropListWidget(QListWidget):
     def dropEvent(self, event):
         files = [url.toLocalFile() for url in event.mimeData().urls()]
         valid_files = [f for f in files if os.path.isfile(f) and is_video_file(f)]
-
-        existing_items = {self.item(i).text() for i in range(self.count())}
-        new_files = [f for f in valid_files if f not in existing_items]
-
-        self.addItems(new_files)
+        existing_files = [self.item(row, 0).text() for row in range(self.rowCount())
+                          if self.item(row, 0) is not None]
+        for file in valid_files:
+            if file not in existing_files:
+                self.add_file(file)
         event.acceptProposedAction()
+
+    def add_file(self, file_path):
+        # Auto-detect video codec and determine TV compatibility
+        codec = get_video_codec(file_path)
+        compatibility = "Compatible with old TVs" if codec.lower() in ['h264', 'hevc', 'mpeg4'] else "Not very compatible with old TVs"
+        format_info = f"{codec} ({compatibility})"
+        row = self.rowCount()
+        self.insertRow(row)
+        self.setItem(row, 0, QTableWidgetItem(file_path))
+        self.setItem(row, 1, QTableWidgetItem(format_info))
 
 
 class ConversionThread(QThread):
@@ -93,14 +119,14 @@ class ConversionThread(QThread):
                         .run(quiet=True)
                     )
                 except ffmpeg.Error as e:
-                    self.error_occurred.emit(f"Error al convertir {file_path}: {e.stderr.decode()}")
+                    self.error_occurred.emit(f"Error converting {file_path}: {e.stderr.decode()}")
 
                 # Update progress
                 self.progress_updated.emit(file_path, int(((index + 1) / total_files) * 100))
 
-            self.progress_updated.emit("Conversión completada", 100)
+            self.progress_updated.emit("Conversion completed", 100)
         except Exception as e:
-            self.error_occurred.emit(f"Error inesperado: {str(e)}")
+            self.error_occurred.emit(f"Unexpected error: {str(e)}")
 
     def stop(self):
         self.running = False
@@ -116,7 +142,7 @@ class MainWindow(QMainWindow):
 
     def setup_ui(self):
         # Create widgets
-        self.list_widget = DragDropListWidget()
+        self.list_widget = DragDropTableWidget()
         self.quality_combo = QComboBox()
         self.quality_combo.addItems(["Baja", "Media", "Alta"])
         self.btn_input_folder = QPushButton("Seleccionar carpeta de entrada")
@@ -153,7 +179,7 @@ class MainWindow(QMainWindow):
     def select_input_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Seleccionar carpeta de entrada")
         if folder:
-            self.list_widget.clear()
+            self.list_widget.setRowCount(0)
             self.add_video_files_from_folder(folder)
 
     def add_video_files_from_folder(self, folder):
@@ -164,9 +190,11 @@ class MainWindow(QMainWindow):
                 if is_video_file(file_path):
                     video_files.append(file_path)
 
-        existing_items = {self.list_widget.item(i).text() for i in range(self.list_widget.count())}
-        new_files = [f for f in video_files if f not in existing_items]
-        self.list_widget.addItems(new_files)
+        existing_files = [self.list_widget.item(row, 0).text() for row in range(self.list_widget.rowCount())
+                          if self.list_widget.item(row, 0) is not None]
+        for file in video_files:
+            if file not in existing_files:
+                self.list_widget.add_file(file)
 
     def select_output_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Seleccionar carpeta de salida")
@@ -183,11 +211,12 @@ class MainWindow(QMainWindow):
             if not self.output_folder:
                 QMessageBox.critical(self, "Error", "Selecciona una carpeta de salida")
                 return
-            if self.list_widget.count() == 0:
+            if self.list_widget.rowCount() == 0:
                 QMessageBox.critical(self, "Error", "Agrega archivos para convertir")
                 return
 
-            files = [self.list_widget.item(i).text() for i in range(self.list_widget.count())]
+            files = [self.list_widget.item(row, 0).text() for row in range(self.list_widget.rowCount())
+                     if self.list_widget.item(row, 0) is not None]
             self.conversion_thread = ConversionThread(
                 files,
                 self.output_folder,
