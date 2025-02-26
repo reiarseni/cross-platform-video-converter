@@ -214,6 +214,14 @@ class MainWindow(QMainWindow):
         self.lbl_status.setText("Estado: Conversión completada")
         self.conversion_thread = None
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        # Center the window on the screen
+        qr = self.frameGeometry()
+        cp = QApplication.desktop().availableGeometry().center()
+        qr.moveCenter(cp)
+        self.move(qr.topLeft())
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
