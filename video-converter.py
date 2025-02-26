@@ -39,14 +39,28 @@ def get_video_duration(file_path):
     except Exception:
         return 0
 
+def format_duration(seconds):
+    """Formats duration in seconds to HH:MM:SS format"""
+    m, s = divmod(int(seconds), 60)
+    h, m = divmod(m, 60)
+    return f"{h:02d}:{m:02d}:{s:02d}"
+
+def format_size(bytes_size):
+    """Formats file size in bytes to a human-readable string"""
+    if bytes_size < 1024:
+        return f"{bytes_size} B"
+    elif bytes_size < 1024 * 1024:
+        return f"{bytes_size/1024:.2f} KB"
+    else:
+        return f"{bytes_size/(1024*1024):.2f} MB"
 
 class DragDropTableWidget(QTableWidget):
     """Custom TableWidget for dragging and dropping files"""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setColumnCount(2)
-        self.setHorizontalHeaderLabels(["File", "Format"])
+        self.setColumnCount(4)
+        self.setHorizontalHeaderLabels(["File", "Format", "Video Duration", "Video Size"])
         self.setAcceptDrops(True)
         self.setDragDropMode(QTableWidget.DropOnly)
         self.setSelectionBehavior(QTableWidget.SelectRows)
@@ -73,10 +87,16 @@ class DragDropTableWidget(QTableWidget):
         codec = get_video_codec(file_path)
         compatibility = "Compatible with old TVs" if codec.lower() in ['h264', 'hevc', 'mpeg4'] else "Not very compatible with old TVs"
         format_info = f"{codec} ({compatibility})"
+        duration = get_video_duration(file_path)
+        formatted_duration = format_duration(duration)
+        file_size = os.path.getsize(file_path)
+        formatted_size = format_size(file_size)
         row = self.rowCount()
         self.insertRow(row)
         self.setItem(row, 0, QTableWidgetItem(file_path))
         self.setItem(row, 1, QTableWidgetItem(format_info))
+        self.setItem(row, 2, QTableWidgetItem(formatted_duration))
+        self.setItem(row, 3, QTableWidgetItem(formatted_size))
 
 
 class ConversionThread(QThread):
@@ -183,6 +203,7 @@ class MainWindow(QMainWindow):
         self.btn_input_folder = QPushButton("Seleccionar carpeta de entrada")
         self.btn_output_folder = QPushButton("Seleccionar carpeta de salida")
         self.btn_start = QPushButton("Iniciar conversión")
+        self.btn_start.setStyleSheet("background-color: green; color: white;")
         self.progress_bar = QProgressBar()  # Global progress
         self.file_progress_bar = QProgressBar()  # File conversion progress
         self.lbl_status = QLabel("Estado: Listo")
@@ -197,12 +218,15 @@ class MainWindow(QMainWindow):
         buttons_layout.addWidget(self.btn_output_folder)
         layout.addLayout(buttons_layout)
 
-        layout.addWidget(QLabel("Calidad de salida:"))
-        layout.addWidget(self.quality_combo)
+        quality_layout = QHBoxLayout()
+        quality_layout.addWidget(QLabel("Calidad de salida:"))
+        quality_layout.addWidget(self.quality_combo)
+        quality_layout.addWidget(self.btn_start)
+        layout.addLayout(quality_layout)
+
         layout.addWidget(self.lbl_status)
-        layout.addWidget(self.progress_bar)
         layout.addWidget(self.file_progress_bar)
-        layout.addWidget(self.btn_start)
+        layout.addWidget(self.progress_bar)
 
         container = QWidget()
         container.setLayout(layout)
