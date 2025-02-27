@@ -57,39 +57,46 @@ class ConversionPreset:
     Centralizes conversion parameters based on format preset and dependent quality selection.
     Follows the Single Responsibility Principle (SRP) for conversion parameter logic.
     """
+    _preset_data = {
+        "MP4 (H.264)": {
+            "preset_quality": {"Baja": "28", "Media": "23", "Alta": "18"},
+            "container": ".mp4",
+            "vcodec": "libx264"
+        },
+        "MP4 (H.265)": {
+            "preset_quality": {"Baja": "30", "Media": "25", "Alta": "20"},
+            "container": ".mp4",
+            "vcodec": "libx265"
+        },
+        "AVI (MPEG-4)": {
+            "preset_quality": {"Baja": "32", "Media": "27", "Alta": "22"},
+            "container": ".avi",
+            "vcodec": "mpeg4"
+        },
+        "MKV (H.264)": {
+            "preset_quality": {"Baja": "28", "Media": "23", "Alta": "18"},
+            "container": ".mkv",
+            "vcodec": "libx264"
+        }
+    }
+
     def __init__(self, format_preset: str, quality: str):
         self.format_preset = format_preset
         self.quality = quality
 
     def get_crf(self) -> str:
         """Returns the CRF value based on the selected format preset and quality."""
-        preset_quality_mapping = {
-            "MP4 (H.264)": {"Baja": "28", "Media": "23", "Alta": "18"},
-            "MP4 (H.265)": {"Baja": "30", "Media": "25", "Alta": "20"},
-            "AVI (MPEG-4)": {"Baja": "32", "Media": "27", "Alta": "22"},
-            "MKV (H.264)": {"Baja": "28", "Media": "23", "Alta": "18"}
-        }
-        return preset_quality_mapping.get(self.format_preset, {}).get(self.quality, "23")
+        return self._preset_data.get(self.format_preset, {}) \
+                   .get("preset_quality", {}) \
+                   .get(self.quality, "23")
 
     def get_container_extension(self) -> str:
         """Returns the container extension based on the selected format preset."""
-        container_mapping = {
-            "MP4 (H.264)": ".mp4",
-            "MP4 (H.265)": ".mp4",
-            "AVI (MPEG-4)": ".avi",
-            "MKV (H.264)": ".mkv"
-        }
-        return container_mapping.get(self.format_preset, ".mp4")
+        return self._preset_data.get(self.format_preset, {}).get("container", ".mp4")
 
     def get_video_codec(self) -> str:
         """Returns the video codec based on the selected format preset."""
-        vcodec_mapping = {
-            "MP4 (H.264)": "libx264",
-            "MP4 (H.265)": "libx265",
-            "AVI (MPEG-4)": "mpeg4",
-            "MKV (H.264)": "libx264"
-        }
-        return vcodec_mapping.get(self.format_preset, "libx264")
+        return self._preset_data.get(self.format_preset, {}).get("vcodec", "libx264")
 
 class DragDropTableWidget(QTableWidget):
     """Custom TableWidget for dragging and dropping files"""
