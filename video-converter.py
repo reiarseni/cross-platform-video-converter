@@ -52,6 +52,45 @@ def format_size(bytes_size):
     else:
         return f"{bytes_size/(1024*1024):.2f} MB"
 
+class ConversionPreset:
+    """
+    Centralizes conversion parameters based on format preset and dependent quality selection.
+    Follows the Single Responsibility Principle (SRP) for conversion parameter logic.
+    """
+    def __init__(self, format_preset: str, quality: str):
+        self.format_preset = format_preset
+        self.quality = quality
+
+    def get_crf(self) -> str:
+        """Returns the CRF value based on the selected format preset and quality."""
+        preset_quality_mapping = {
+            "MP4 (H.264)": {"Baja": "28", "Media": "23", "Alta": "18"},
+            "MP4 (H.265)": {"Baja": "30", "Media": "25", "Alta": "20"},
+            "AVI (MPEG-4)": {"Baja": "32", "Media": "27", "Alta": "22"},
+            "MKV (H.264)": {"Baja": "28", "Media": "23", "Alta": "18"}
+        }
+        return preset_quality_mapping.get(self.format_preset, {}).get(self.quality, "23")
+
+    def get_container_extension(self) -> str:
+        """Returns the container extension based on the selected format preset."""
+        container_mapping = {
+            "MP4 (H.264)": ".mp4",
+            "MP4 (H.265)": ".mp4",
+            "AVI (MPEG-4)": ".avi",
+            "MKV (H.264)": ".mkv"
+        }
+        return container_mapping.get(self.format_preset, ".mp4")
+
+    def get_video_codec(self) -> str:
+        """Returns the video codec based on the selected format preset."""
+        vcodec_mapping = {
+            "MP4 (H.264)": "libx264",
+            "MP4 (H.265)": "libx265",
+            "AVI (MPEG-4)": "mpeg4",
+            "MKV (H.264)": "libx264"
+        }
+        return vcodec_mapping.get(self.format_preset, "libx264")
+
 class DragDropTableWidget(QTableWidget):
     """Custom TableWidget for dragging and dropping files"""
 
@@ -120,22 +159,14 @@ class ConversionThread(QThread):
     file_progress_updated = pyqtSignal(str, int)
     error_occurred = pyqtSignal(str)
 
-    def __init__(self, files, output_folder, quality):
+    def __init__(self, files, output_folder, format_preset, quality_setting):
         super().__init__()
         self.files = files
         self.output_folder = output_folder
-        self.quality = quality
+        self.conversion_preset = ConversionPreset(format_preset, quality_setting)
         self.running = True
         self.process = None
         self.current_output_path = None
-
-    def get_crf(self):
-        """Gets the CRF value based on the selected quality"""
-        return {
-            "Baja": "28",
-            "Media": "23",
-            "Alta": "18"
-        }.get(self.quality, "23")
 
     def run(self):
         try:
@@ -144,9 +175,10 @@ class ConversionThread(QThread):
                 if not self.running:
                     break
 
-                # Generate output file name
+                # Generate output file name based on selected container
                 base_name = os.path.splitext(os.path.basename(file_path))[0]
-                output_path = os.path.join(self.output_folder, f"{base_name}.mp4")
+                container_ext = self.conversion_preset.get_container_extension()
+                output_path = os.path.join(self.output_folder, f"{base_name}{container_ext}")
                 self.current_output_path = output_path  # Store current output file path
 
                 # Update global progress before starting file conversion
@@ -156,14 +188,17 @@ class ConversionThread(QThread):
                 duration = get_video_duration(file_path)
                 self.file_progress_updated.emit(file_path, 0)
 
+                # Determine video codec based on preset
+                vcodec = self.conversion_preset.get_video_codec()
+
                 try:
                     self.process = (
                         ffmpeg
                         .input(file_path)
                         .output(output_path,
-                                vcodec='libx264',
+                                vcodec=vcodec,
                                 preset='slow',
-                                crf=self.get_crf(),
+                                crf=self.conversion_preset.get_crf(),
                                 acodec='aac',
                                 audio_bitrate='192k',
                                 movflags='+faststart',
@@ -240,8 +275,6 @@ class MainWindow(QMainWindow):
     def setup_ui(self):
         # Create widgets
         self.list_widget = DragDropTableWidget()
-        self.quality_combo = QComboBox()
-        self.quality_combo.addItems(["Baja", "Media", "Alta"])
         self.btn_input_folder = QPushButton("Seleccionar carpeta de entrada")
         self.btn_output_folder = QPushButton("Seleccionar carpeta de salida")
         self.btn_start = QPushButton("Iniciar conversión")
@@ -253,6 +286,17 @@ class MainWindow(QMainWindow):
         self.btn_export = QPushButton("Exportar lista")
         self.btn_import = QPushButton("Cargar lista")
 
+        # Modify quality layout: add dependent quality and format preset selects
+        quality_layout = QHBoxLayout()
+        quality_layout.addWidget(QLabel("Calidad de salida:"))
+        self.dependent_quality_combo = QComboBox()
+        self.dependent_quality_combo.addItems(["Baja", "Media", "Alta"])
+        quality_layout.addWidget(self.dependent_quality_combo)
+        self.format_combo = QComboBox()
+        self.format_combo.addItems(["MP4 (H.264)", "MP4 (H.265)", "AVI (MPEG-4)", "MKV (H.264)"])
+        quality_layout.addWidget(self.format_combo)
+        quality_layout.addWidget(self.btn_start)
+
         # Configure layout
         layout = QVBoxLayout()
         layout.addWidget(QLabel("Archivos a convertir:"))
@@ -263,10 +307,6 @@ class MainWindow(QMainWindow):
         folder_buttons_layout.addWidget(self.btn_output_folder)
         layout.addLayout(folder_buttons_layout)
 
-        quality_layout = QHBoxLayout()
-        quality_layout.addWidget(QLabel("Calidad de salida:"))
-        quality_layout.addWidget(self.quality_combo)
-        quality_layout.addWidget(self.btn_start)
         layout.addLayout(quality_layout)
 
         # New layout for export/import buttons
@@ -301,7 +341,9 @@ class MainWindow(QMainWindow):
         out_elem = ET.SubElement(root, "output_folder")
         out_elem.text = self.output_folder if self.output_folder else ""
         quality_elem = ET.SubElement(root, "quality")
-        quality_elem.text = self.quality_combo.currentText()
+        quality_elem.text = self.dependent_quality_combo.currentText()
+        format_elem = ET.SubElement(root, "format_preset")
+        format_elem.text = self.format_combo.currentText()
         index_elem = ET.SubElement(root, "next_index")
         if adjusted_next_index is not None:
             index_elem.text = str(adjusted_next_index)
@@ -330,9 +372,15 @@ class MainWindow(QMainWindow):
             quality_elem = root.find('quality')
             if quality_elem is not None:
                 quality = quality_elem.text.strip()
-                index = self.quality_combo.findText(quality)
+                index = self.dependent_quality_combo.findText(quality)
                 if index != -1:
-                    self.quality_combo.setCurrentIndex(index)
+                    self.dependent_quality_combo.setCurrentIndex(index)
+            format_elem = root.find('format_preset')
+            if format_elem is not None:
+                fmt = format_elem.text.strip()
+                index = self.format_combo.findText(fmt)
+                if index != -1:
+                    self.format_combo.setCurrentIndex(index)
             index_elem = root.find('next_index')
             if index_elem is not None:
                 try:
@@ -384,9 +432,16 @@ class MainWindow(QMainWindow):
                 quality_elem = root.find('quality')
                 if quality_elem is not None:
                     quality = quality_elem.text.strip()
-                    index = self.quality_combo.findText(quality)
+                    index = self.dependent_quality_combo.findText(quality)
                     if index != -1:
-                        self.quality_combo.setCurrentIndex(index)
+                        self.dependent_quality_combo.setCurrentIndex(index)
+                # Load format preset
+                format_elem = root.find('format_preset')
+                if format_elem is not None:
+                    fmt = format_elem.text.strip()
+                    index = self.format_combo.findText(fmt)
+                    if index != -1:
+                        self.format_combo.setCurrentIndex(index)
                 # Load next index and select that row
                 index_elem = root.find('next_index')
                 if index_elem is not None:
@@ -441,7 +496,8 @@ class MainWindow(QMainWindow):
             self.btn_start.setStyleSheet("background-color: green; color: white;")
             self.btn_input_folder.setEnabled(True)
             self.btn_output_folder.setEnabled(True)
-            self.quality_combo.setEnabled(True)
+            self.dependent_quality_combo.setEnabled(True)
+            self.format_combo.setEnabled(True)
             self.list_widget.setEnabled(True)
             self.btn_import.setEnabled(True)
             self.conversion_thread = None
@@ -458,7 +514,8 @@ class MainWindow(QMainWindow):
             self.conversion_thread = ConversionThread(
                 files,
                 self.output_folder,
-                self.quality_combo.currentText()
+                self.format_combo.currentText(),
+                self.dependent_quality_combo.currentText()
             )
 
             self.conversion_thread.progress_updated.connect(self.update_progress)
@@ -470,7 +527,8 @@ class MainWindow(QMainWindow):
             self.btn_start.setStyleSheet("background-color: yellow; color: black;")
             self.btn_input_folder.setEnabled(False)
             self.btn_output_folder.setEnabled(False)
-            self.quality_combo.setEnabled(False)
+            self.dependent_quality_combo.setEnabled(False)
+            self.format_combo.setEnabled(False)
             self.list_widget.setEnabled(False)
             self.btn_import.setEnabled(False)
             self.progress_bar.setValue(0)
@@ -504,7 +562,8 @@ class MainWindow(QMainWindow):
         self.lbl_status.setText("Estado: Conversión completada")
         self.btn_input_folder.setEnabled(True)
         self.btn_output_folder.setEnabled(True)
-        self.quality_combo.setEnabled(True)
+        self.dependent_quality_combo.setEnabled(True)
+        self.format_combo.setEnabled(True)
         self.list_widget.setEnabled(True)
         self.btn_import.setEnabled(True)
         self.conversion_thread = None
@@ -528,7 +587,9 @@ class MainWindow(QMainWindow):
             out_elem = ET.SubElement(root, "output_folder")
             out_elem.text = self.output_folder if self.output_folder else ""
             quality_elem = ET.SubElement(root, "quality")
-            quality_elem.text = self.quality_combo.currentText()
+            quality_elem.text = self.dependent_quality_combo.currentText()
+            format_elem = ET.SubElement(root, "format_preset")
+            format_elem.text = self.format_combo.currentText()
             index_elem = ET.SubElement(root, "next_index")
             index_elem.text = str(self.next_index)
             tree = ET.ElementTree(root)
