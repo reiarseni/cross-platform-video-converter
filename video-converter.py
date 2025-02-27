@@ -82,6 +82,10 @@ class DragDropTableWidget(QTableWidget):
         else:
             event.ignore()
 
+    def dragMoveEvent(self, event):
+        # Accept drag move events to ensure proper drag and drop functionality.
+        event.acceptProposedAction()
+
     def dropEvent(self, event):
         files = [url.toLocalFile() for url in event.mimeData().urls()]
         valid_files = [f for f in files if os.path.isfile(f) and is_video_file(f)]
