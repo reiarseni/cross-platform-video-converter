@@ -64,6 +64,18 @@ class DragDropTableWidget(QTableWidget):
         self.setSelectionBehavior(QTableWidget.SelectRows)
         self.setSelectionMode(QTableWidget.ExtendedSelection)
 
+    def resizeEvent(self, event):
+        # Adjust column widths: first column gets 50% of the table width,
+        # and the remaining 3 columns share the other 50% equally.
+        total_width = self.viewport().width()
+        col0_width = int(total_width * 0.5)
+        other_width = int((total_width * 0.5) / 3)
+        self.setColumnWidth(0, col0_width)
+        self.setColumnWidth(1, other_width)
+        self.setColumnWidth(2, other_width)
+        self.setColumnWidth(3, other_width)
+        super().resizeEvent(event)
+
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
