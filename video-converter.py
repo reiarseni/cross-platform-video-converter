@@ -84,6 +84,20 @@ class ConversionPreset:
         self.format_preset = format_preset
         self.quality = quality
 
+    @classmethod
+    def get_available_presets(cls):
+        """Returns a list of available format presets."""
+        return list(cls._preset_data.keys())
+
+    @classmethod
+    def get_available_qualities(cls):
+        """Returns a list of available quality options."""
+        if "MP4 (H.264)" in cls._preset_data:
+            return list(cls._preset_data["MP4 (H.264)"]["preset_quality"].keys())
+        else:
+            first_key = next(iter(cls._preset_data))
+            return list(cls._preset_data[first_key]["preset_quality"].keys())
+
     def get_crf(self) -> str:
         """Returns the CRF value based on the selected format preset and quality."""
         return self._preset_data.get(self.format_preset, {}) \
@@ -293,15 +307,16 @@ class MainWindow(QMainWindow):
         self.btn_export = QPushButton("Exportar lista")
         self.btn_import = QPushButton("Cargar lista")
 
-        # Modify quality layout: add dependent quality and format preset selects
+        # Modify quality layout: first preset combo then quality combo
         quality_layout = QHBoxLayout()
+        quality_layout.addWidget(QLabel("Formato Preset:"))
+        self.format_combo = QComboBox()
+        self.format_combo.addItems(ConversionPreset.get_available_presets())
+        quality_layout.addWidget(self.format_combo)
         quality_layout.addWidget(QLabel("Calidad de salida:"))
         self.dependent_quality_combo = QComboBox()
-        self.dependent_quality_combo.addItems(["Baja", "Media", "Alta"])
+        self.dependent_quality_combo.addItems(ConversionPreset.get_available_qualities())
         quality_layout.addWidget(self.dependent_quality_combo)
-        self.format_combo = QComboBox()
-        self.format_combo.addItems(["MP4 (H.264)", "MP4 (H.265)", "AVI (MPEG-4)", "MKV (H.264)"])
-        quality_layout.addWidget(self.format_combo)
         quality_layout.addWidget(self.btn_start)
 
         # Configure layout
