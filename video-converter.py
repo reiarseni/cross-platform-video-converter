@@ -306,8 +306,13 @@ class MainWindow(QMainWindow):
     def select_input_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Seleccionar carpeta de entrada")
         if folder:
+            # Disable table and show loading indicator
+            self.list_widget.setEnabled(False)
+            self.lbl_status.setText("Cargando información...")
             self.list_widget.setRowCount(0)
             self.add_video_files_from_folder(folder)
+            self.lbl_status.setText("Información cargada")
+            self.list_widget.setEnabled(True)
 
     def add_video_files_from_folder(self, folder):
         video_files = []
@@ -322,6 +327,7 @@ class MainWindow(QMainWindow):
         for file in video_files:
             if file not in existing_files:
                 self.list_widget.add_file(file)
+                QApplication.processEvents()
 
     def select_output_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Seleccionar carpeta de salida")
