@@ -249,22 +249,31 @@ class MainWindow(QMainWindow):
         self.progress_bar = QProgressBar()  # Global progress
         self.file_progress_bar = QProgressBar()  # File conversion progress
         self.lbl_status = QLabel("Estado: Listo")
+        # New buttons for export/import state
+        self.btn_export = QPushButton("Exportar lista")
+        self.btn_import = QPushButton("Cargar lista")
 
         # Configure layout
         layout = QVBoxLayout()
         layout.addWidget(QLabel("Archivos a convertir:"))
         layout.addWidget(self.list_widget)
 
-        buttons_layout = QHBoxLayout()
-        buttons_layout.addWidget(self.btn_input_folder)
-        buttons_layout.addWidget(self.btn_output_folder)
-        layout.addLayout(buttons_layout)
+        folder_buttons_layout = QHBoxLayout()
+        folder_buttons_layout.addWidget(self.btn_input_folder)
+        folder_buttons_layout.addWidget(self.btn_output_folder)
+        layout.addLayout(folder_buttons_layout)
 
         quality_layout = QHBoxLayout()
         quality_layout.addWidget(QLabel("Calidad de salida:"))
         quality_layout.addWidget(self.quality_combo)
         quality_layout.addWidget(self.btn_start)
         layout.addLayout(quality_layout)
+
+        # New layout for export/import buttons
+        state_buttons_layout = QHBoxLayout()
+        state_buttons_layout.addWidget(self.btn_export)
+        state_buttons_layout.addWidget(self.btn_import)
+        layout.addLayout(state_buttons_layout)
 
         layout.addWidget(self.lbl_status)
         layout.addWidget(self.file_progress_bar)
@@ -278,6 +287,77 @@ class MainWindow(QMainWindow):
         self.btn_input_folder.clicked.connect(self.select_input_folder)
         self.btn_output_folder.clicked.connect(self.select_output_folder)
         self.btn_start.clicked.connect(self.toggle_conversion)
+        self.btn_export.clicked.connect(self.export_state)
+        self.btn_import.clicked.connect(self.import_state)
+
+    def save_state_to_file(self, file_path, adjusted_next_index=None):
+        root = ET.Element("app_state")
+        videos_elem = ET.SubElement(root, "videos")
+        for row in range(self.list_widget.rowCount()):
+            item = self.list_widget.item(row, 0)
+            if item:
+                video_elem = ET.SubElement(videos_elem, "video")
+                video_elem.text = item.data(Qt.UserRole)
+        out_elem = ET.SubElement(root, "output_folder")
+        out_elem.text = self.output_folder if self.output_folder else ""
+        quality_elem = ET.SubElement(root, "quality")
+        quality_elem.text = self.quality_combo.currentText()
+        index_elem = ET.SubElement(root, "next_index")
+        if adjusted_next_index is not None:
+            index_elem.text = str(adjusted_next_index)
+        else:
+            index_elem.text = str(self.next_index)
+        tree = ET.ElementTree(root)
+        tree.write(file_path, encoding='utf-8', xml_declaration=True)
+
+    def load_state_from_file(self, file_path):
+        try:
+            tree = ET.parse(file_path)
+            root = tree.getroot()
+            self.list_widget.setRowCount(0)
+            videos = root.find('videos')
+            if videos is not None:
+                for video in videos.findall('video'):
+                    file_path = video.text.strip()
+                    if file_path and os.path.exists(file_path) and is_video_file(file_path):
+                        self.list_widget.add_file(file_path)
+            out_elem = root.find('output_folder')
+            if out_elem is not None:
+                folder = out_elem.text.strip()
+                if folder and os.path.isdir(folder):
+                    self.output_folder = folder
+                    self.lbl_status.setText(f"Carpeta de salida: {folder}")
+            quality_elem = root.find('quality')
+            if quality_elem is not None:
+                quality = quality_elem.text.strip()
+                index = self.quality_combo.findText(quality)
+                if index != -1:
+                    self.quality_combo.setCurrentIndex(index)
+            index_elem = root.find('next_index')
+            if index_elem is not None:
+                try:
+                    self.next_index = int(index_elem.text.strip())
+                except ValueError:
+                    self.next_index = 0
+            if self.next_index < self.list_widget.rowCount():
+                self.list_widget.setCurrentCell(self.next_index, 0)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error loading state: {str(e)}")
+
+    def export_state(self):
+        file_path, _ = QFileDialog.getSaveFileName(self, "Exportar lista", "", "XML Files (*.xml)")
+        if file_path:
+            adjusted_index = None
+            if self.conversion_thread and self.conversion_thread.isRunning():
+                adjusted_index = max(self.next_index - 1, 0)
+            self.save_state_to_file(file_path, adjusted_next_index=adjusted_index)
+            QMessageBox.information(self, "Exportar lista", "Lista exportada correctamente.")
+
+    def import_state(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "Cargar lista", "", "All Files (*.xml)")
+        if file_path:
+            self.load_state_from_file(file_path)
+            QMessageBox.information(self, "Cargar lista", "Lista cargada correctamente.")
 
     def load_last_state(self):
         state_file = os.path.join(os.path.dirname(__file__), 'last_state.xml')
@@ -363,6 +443,7 @@ class MainWindow(QMainWindow):
             self.btn_output_folder.setEnabled(True)
             self.quality_combo.setEnabled(True)
             self.list_widget.setEnabled(True)
+            self.btn_import.setEnabled(True)
             self.conversion_thread = None
         else:
             if not self.output_folder:
@@ -391,6 +472,7 @@ class MainWindow(QMainWindow):
             self.btn_output_folder.setEnabled(False)
             self.quality_combo.setEnabled(False)
             self.list_widget.setEnabled(False)
+            self.btn_import.setEnabled(False)
             self.progress_bar.setValue(0)
             self.file_progress_bar.setValue(0)
             self.conversion_thread.start()
@@ -424,6 +506,7 @@ class MainWindow(QMainWindow):
         self.btn_output_folder.setEnabled(True)
         self.quality_combo.setEnabled(True)
         self.list_widget.setEnabled(True)
+        self.btn_import.setEnabled(True)
         self.conversion_thread = None
 
     def closeEvent(self, event):
