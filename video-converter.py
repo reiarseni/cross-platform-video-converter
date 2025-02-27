@@ -405,24 +405,33 @@ class MainWindow(QMainWindow):
         self.conversion_thread = None
 
     def closeEvent(self, event):
-        # Save state in XML
-        root = ET.Element("app_state")
-        videos_elem = ET.SubElement(root, "videos")
-        for row in range(self.list_widget.rowCount()):
-            item = self.list_widget.item(row, 0)
-            if item:
-                video_elem = ET.SubElement(videos_elem, "video")
-                video_elem.text = item.data(Qt.UserRole)
-        out_elem = ET.SubElement(root, "output_folder")
-        out_elem.text = self.output_folder if self.output_folder else ""
-        quality_elem = ET.SubElement(root, "quality")
-        quality_elem.text = self.quality_combo.currentText()
-        index_elem = ET.SubElement(root, "next_index")
-        index_elem.text = str(self.next_index)
-        tree = ET.ElementTree(root)
-        state_file = os.path.join(os.path.dirname(__file__), 'last_state.xml')
-        tree.write(state_file, encoding='utf-8', xml_declaration=True)
-        event.accept()
+        # Show confirmation dialog on exit
+        reply = QMessageBox.question(self, "Confirmar salida", "¿Estás seguro de cerrar el programa?",
+                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            # If a conversion is in progress, stop it before closing
+            if self.conversion_thread and self.conversion_thread.isRunning():
+                self.conversion_thread.stop()
+            # Save state in XML
+            root = ET.Element("app_state")
+            videos_elem = ET.SubElement(root, "videos")
+            for row in range(self.list_widget.rowCount()):
+                item = self.list_widget.item(row, 0)
+                if item:
+                    video_elem = ET.SubElement(videos_elem, "video")
+                    video_elem.text = item.data(Qt.UserRole)
+            out_elem = ET.SubElement(root, "output_folder")
+            out_elem.text = self.output_folder if self.output_folder else ""
+            quality_elem = ET.SubElement(root, "quality")
+            quality_elem.text = self.quality_combo.currentText()
+            index_elem = ET.SubElement(root, "next_index")
+            index_elem.text = str(self.next_index)
+            tree = ET.ElementTree(root)
+            state_file = os.path.join(os.path.dirname(__file__), 'last_state.xml')
+            tree.write(state_file, encoding='utf-8', xml_declaration=True)
+            event.accept()
+        else:
+            event.ignore()
 
     def showEvent(self, event):
         super().showEvent(event)
