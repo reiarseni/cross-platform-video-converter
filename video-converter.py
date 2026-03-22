@@ -406,6 +406,10 @@ class MainWindow(QMainWindow):
         self.dependent_quality_combo = QComboBox()
         self.dependent_quality_combo.addItems(ConversionPreset.get_available_qualities())
         quality_layout.addWidget(self.dependent_quality_combo)
+        quality_layout.addWidget(QLabel("Encoder:"))
+        self.encoder_combo = QComboBox()
+        self.encoder_combo.addItems(AVAILABLE_ENCODERS)
+        quality_layout.addWidget(self.encoder_combo)
         quality_layout.addWidget(self.btn_start)
 
         # Configure layout
@@ -455,6 +459,8 @@ class MainWindow(QMainWindow):
         quality_elem.text = self.dependent_quality_combo.currentText()
         format_elem = ET.SubElement(root, "format_preset")
         format_elem.text = self.format_combo.currentText()
+        encoder_elem = ET.SubElement(root, "encoder")
+        encoder_elem.text = self.encoder_combo.currentText()
         index_elem = ET.SubElement(root, "next_index")
         if adjusted_next_index is not None:
             index_elem.text = str(adjusted_next_index)
@@ -492,6 +498,12 @@ class MainWindow(QMainWindow):
                 index = self.format_combo.findText(fmt)
                 if index != -1:
                     self.format_combo.setCurrentIndex(index)
+            encoder_elem = root.find('encoder')
+            if encoder_elem is not None:
+                enc = encoder_elem.text.strip()
+                idx = self.encoder_combo.findText(enc)
+                if idx != -1:
+                    self.encoder_combo.setCurrentIndex(idx)
             index_elem = root.find('next_index')
             if index_elem is not None:
                 try:
@@ -553,6 +565,13 @@ class MainWindow(QMainWindow):
                     index = self.format_combo.findText(fmt)
                     if index != -1:
                         self.format_combo.setCurrentIndex(index)
+                # Load encoder
+                encoder_elem = root.find('encoder')
+                if encoder_elem is not None:
+                    enc = encoder_elem.text.strip()
+                    idx = self.encoder_combo.findText(enc)
+                    if idx != -1:
+                        self.encoder_combo.setCurrentIndex(idx)
                 # Load next index and select that row
                 index_elem = root.find('next_index')
                 if index_elem is not None:
@@ -609,6 +628,7 @@ class MainWindow(QMainWindow):
             self.btn_output_folder.setEnabled(True)
             self.dependent_quality_combo.setEnabled(True)
             self.format_combo.setEnabled(True)
+            self.encoder_combo.setEnabled(True)
             self.list_widget.setEnabled(True)
             self.btn_import.setEnabled(True)
             self.conversion_thread = None
@@ -626,7 +646,8 @@ class MainWindow(QMainWindow):
                 files,
                 self.output_folder,
                 self.format_combo.currentText(),
-                self.dependent_quality_combo.currentText()
+                self.dependent_quality_combo.currentText(),
+                self.encoder_combo.currentText()
             )
 
             self.conversion_thread.progress_updated.connect(self.update_progress)
@@ -640,6 +661,7 @@ class MainWindow(QMainWindow):
             self.btn_output_folder.setEnabled(False)
             self.dependent_quality_combo.setEnabled(False)
             self.format_combo.setEnabled(False)
+            self.encoder_combo.setEnabled(False)
             self.list_widget.setEnabled(False)
             self.btn_import.setEnabled(False)
             self.progress_bar.setValue(0)
@@ -675,6 +697,7 @@ class MainWindow(QMainWindow):
         self.btn_output_folder.setEnabled(True)
         self.dependent_quality_combo.setEnabled(True)
         self.format_combo.setEnabled(True)
+        self.encoder_combo.setEnabled(True)
         self.list_widget.setEnabled(True)
         self.btn_import.setEnabled(True)
         self.conversion_thread = None
@@ -701,6 +724,8 @@ class MainWindow(QMainWindow):
             quality_elem.text = self.dependent_quality_combo.currentText()
             format_elem = ET.SubElement(root, "format_preset")
             format_elem.text = self.format_combo.currentText()
+            encoder_elem = ET.SubElement(root, "encoder")
+            encoder_elem.text = self.encoder_combo.currentText()
             index_elem = ET.SubElement(root, "next_index")
             index_elem.text = str(self.next_index)
             tree = ET.ElementTree(root)
