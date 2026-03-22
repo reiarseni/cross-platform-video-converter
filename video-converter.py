@@ -1,11 +1,47 @@
 import os
 import sys
+import subprocess
 import xml.etree.ElementTree as ET
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QTableWidget, QTableWidgetItem, QPushButton, QComboBox, QProgressBar, QLabel,
                              QFileDialog, QMessageBox)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 import ffmpeg
+
+# Encoder labels
+ENCODER_AUTO   = "Auto"
+ENCODER_CPU    = "CPU"
+ENCODER_NVIDIA = "NVIDIA (NVENC)"
+ENCODER_INTEL  = "Intel (QSV)"
+ENCODER_AMD    = "AMD (AMF)"
+
+def _scan_ffmpeg_encoder_list():
+    """Queries ffmpeg -encoders and returns the raw text output."""
+    try:
+        result = subprocess.run(
+            ['ffmpeg', '-hide_banner', '-encoders'],
+            capture_output=True, text=True, timeout=5
+        )
+        return result.stdout + result.stderr
+    except Exception:
+        return ""
+
+def _has_encoder(codec, encoder_text):
+    """Returns True if codec name appears in the ffmpeg -encoders output."""
+    return codec in encoder_text
+
+_FFMPEG_ENCODERS_TEXT = _scan_ffmpeg_encoder_list()
+
+# Build list of available encoders at startup (Auto and CPU are always available)
+AVAILABLE_ENCODERS = [ENCODER_AUTO, ENCODER_CPU]
+_GPU_CANDIDATES = [
+    (ENCODER_NVIDIA, ['h264_nvenc', 'hevc_nvenc']),
+    (ENCODER_INTEL,  ['h264_qsv',   'hevc_qsv']),
+    (ENCODER_AMD,    ['h264_amf',   'hevc_amf']),
+]
+for _label, _codecs in _GPU_CANDIDATES:
+    if any(_has_encoder(c, _FFMPEG_ENCODERS_TEXT) for c in _codecs):
+        AVAILABLE_ENCODERS.append(_label)
 
 # Supported video file extensions
 VIDEO_EXTENSIONS = ['.mp4', '.avi', '.mov', '.mkv', '.flv', '.wmv', '.webm', '.m4v', '.mpg', '.mpeg', '.3gp']
