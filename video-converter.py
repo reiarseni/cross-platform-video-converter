@@ -116,6 +116,14 @@ class ConversionPreset:
         }
     }
 
+    # GPU codec equivalents per format preset (AVI/mpeg4 has no GPU encoder in FFmpeg)
+    _gpu_codec_map = {
+        "MP4 (H.264)": {ENCODER_NVIDIA: "h264_nvenc", ENCODER_INTEL: "h264_qsv", ENCODER_AMD: "h264_amf"},
+        "MP4 (H.265)": {ENCODER_NVIDIA: "hevc_nvenc", ENCODER_INTEL: "hevc_qsv", ENCODER_AMD: "hevc_amf"},
+        "AVI (MPEG-4)": {},
+        "MKV (H.264)": {ENCODER_NVIDIA: "h264_nvenc", ENCODER_INTEL: "h264_qsv", ENCODER_AMD: "h264_amf"},
+    }
+
     def __init__(self, format_preset: str, quality: str):
         self.format_preset = format_preset
         self.quality = quality
@@ -145,8 +153,36 @@ class ConversionPreset:
         return self._preset_data.get(self.format_preset, {}).get("container", ".mp4")
 
     def get_video_codec(self) -> str:
-        """Returns the video codec based on the selected format preset."""
+        """Returns the CPU video codec based on the selected format preset."""
         return self._preset_data.get(self.format_preset, {}).get("vcodec", "libx264")
+
+    @classmethod
+    def get_gpu_codec(cls, format_preset, encoder):
+        """Returns the GPU codec name for the given preset and encoder, or None if unsupported."""
+        return cls._gpu_codec_map.get(format_preset, {}).get(encoder)
+
+    def resolve_encoder(self, preferred_encoder):
+        """
+        Returns (resolved_encoder_label, codec) for the given preference.
+        Falls back to CPU if the GPU encoder is unavailable for this preset.
+        """
+        if preferred_encoder == ENCODER_CPU:
+            return ENCODER_CPU, self.get_video_codec()
+
+        if preferred_encoder == ENCODER_AUTO:
+            for label in [ENCODER_NVIDIA, ENCODER_INTEL, ENCODER_AMD]:
+                if label in AVAILABLE_ENCODERS:
+                    gpu_codec = self.get_gpu_codec(self.format_preset, label)
+                    if gpu_codec:
+                        return label, gpu_codec
+            return ENCODER_CPU, self.get_video_codec()
+
+        # Specific GPU encoder requested
+        gpu_codec = self.get_gpu_codec(self.format_preset, preferred_encoder)
+        if gpu_codec:
+            return preferred_encoder, gpu_codec
+        # Preset doesn't support this GPU (e.g. AVI + NVENC) → fall back to CPU
+        return ENCODER_CPU, self.get_video_codec()
 
 class DragDropTableWidget(QTableWidget):
     """Custom TableWidget for dragging and dropping files"""
@@ -216,14 +252,38 @@ class ConversionThread(QThread):
     file_progress_updated = pyqtSignal(str, int)
     error_occurred = pyqtSignal(str)
 
-    def __init__(self, files, output_folder, format_preset, quality_setting):
+    def __init__(self, files, output_folder, format_preset, quality_setting, encoder=ENCODER_CPU):
         super().__init__()
         self.files = files
         self.output_folder = output_folder
         self.conversion_preset = ConversionPreset(format_preset, quality_setting)
+        self.encoder = encoder
         self.running = True
         self.process = None
         self.current_output_path = None
+
+    def _build_output_kwargs(self, resolved_encoder, codec):
+        """Build ffmpeg output keyword arguments for the resolved encoder and codec."""
+        crf = self.conversion_preset.get_crf()
+        base = {
+            'acodec': 'aac',
+            'audio_bitrate': '192k',
+            'movflags': '+faststart',
+            'progress': 'pipe:1',
+        }
+        if resolved_encoder == ENCODER_NVIDIA:
+            # NVENC: VBR with constant quality target (CQ mirrors CRF scale)
+            base.update({'vcodec': codec, 'preset': 'p4', 'rc': 'vbr', 'cq': crf})
+        elif resolved_encoder == ENCODER_INTEL:
+            # QSV: ICQ (Intelligent Constant Quality) mode
+            base.update({'vcodec': codec, 'global_quality': crf, 'look_ahead': '1'})
+        elif resolved_encoder == ENCODER_AMD:
+            # AMF: constant QP mode
+            base.update({'vcodec': codec, 'rc': 'cqp', 'qp_i': crf, 'qp_p': crf})
+        else:
+            # CPU
+            base.update({'vcodec': codec, 'preset': 'slow', 'crf': crf})
+        return base
 
     def run(self):
         try:
@@ -245,21 +305,14 @@ class ConversionThread(QThread):
                 duration = get_video_duration(file_path)
                 self.file_progress_updated.emit(file_path, 0)
 
-                # Determine video codec based on preset
-                vcodec = self.conversion_preset.get_video_codec()
+                # Resolve encoder and codec for this file/preset combination
+                resolved_encoder, vcodec = self.conversion_preset.resolve_encoder(self.encoder)
 
                 try:
                     self.process = (
                         ffmpeg
                         .input(file_path)
-                        .output(output_path,
-                                vcodec=vcodec,
-                                preset='slow',
-                                crf=self.conversion_preset.get_crf(),
-                                acodec='aac',
-                                audio_bitrate='192k',
-                                movflags='+faststart',
-                                progress='pipe:1')
+                        .output(output_path, **self._build_output_kwargs(resolved_encoder, vcodec))
                         .overwrite_output()
                         .run_async(pipe_stdout=True, pipe_stderr=True)
                     )
