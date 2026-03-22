@@ -3,9 +3,10 @@ import sys
 import subprocess
 import xml.etree.ElementTree as ET
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-                             QTableWidget, QTableWidgetItem, QPushButton, QComboBox, QProgressBar, QLabel,
-                             QFileDialog, QMessageBox)
+                             QTableWidget, QTableWidgetItem, QPushButton, QComboBox, QProgressBar,
+                             QLabel, QFileDialog, QMessageBox, QSpinBox)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtGui import QColor
 import ffmpeg
 
 # Encoder labels
@@ -187,25 +188,24 @@ class ConversionPreset:
 class DragDropTableWidget(QTableWidget):
     """Custom TableWidget for dragging and dropping files"""
 
+    _STATUS_COL = 4
+
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setColumnCount(4)
-        self.setHorizontalHeaderLabels(["File", "Format", "Video Duration", "Video Size"])
+        self.setColumnCount(5)
+        self.setHorizontalHeaderLabels(["Archivo", "Formato", "Duración", "Tamaño", "Estado"])
         self.setAcceptDrops(True)
         self.setDragDropMode(QTableWidget.DropOnly)
         self.setSelectionBehavior(QTableWidget.SelectRows)
         self.setSelectionMode(QTableWidget.ExtendedSelection)
 
     def resizeEvent(self, event):
-        # Adjust column widths: first column gets 50% of the table width,
-        # and the remaining 3 columns share the other 50% equally.
         total_width = self.viewport().width()
-        col0_width = int(total_width * 0.5)
-        other_width = int((total_width * 0.5) / 3)
-        self.setColumnWidth(0, col0_width)
-        self.setColumnWidth(1, other_width)
-        self.setColumnWidth(2, other_width)
-        self.setColumnWidth(3, other_width)
+        self.setColumnWidth(0, int(total_width * 0.38))
+        self.setColumnWidth(1, int(total_width * 0.20))
+        self.setColumnWidth(2, int(total_width * 0.12))
+        self.setColumnWidth(3, int(total_width * 0.10))
+        self.setColumnWidth(4, int(total_width * 0.18))
         super().resizeEvent(event)
 
     def dragEnterEvent(self, event):
@@ -215,7 +215,6 @@ class DragDropTableWidget(QTableWidget):
             event.ignore()
 
     def dragMoveEvent(self, event):
-        # Accept drag move events to ensure proper drag and drop functionality.
         event.acceptProposedAction()
 
     def dropEvent(self, event):
@@ -229,9 +228,8 @@ class DragDropTableWidget(QTableWidget):
         event.acceptProposedAction()
 
     def add_file(self, file_path):
-        # Auto-detect video codec and determine TV compatibility
         codec = get_video_codec(file_path)
-        compatibility = "Compatible with old TVs" if codec.lower() in ['h264', 'hevc', 'mpeg4'] else "Not very compatible with old TVs"
+        compatibility = "Compatible con TVs" if codec.lower() in ['h264', 'hevc', 'mpeg4'] else "Baja compatibilidad TV"
         format_info = f"{codec} ({compatibility})"
         duration = get_video_duration(file_path)
         formatted_duration = format_duration(duration)
@@ -239,28 +237,93 @@ class DragDropTableWidget(QTableWidget):
         formatted_size = format_size(file_size)
         row = self.rowCount()
         self.insertRow(row)
-        # Store full file path in user role and display only the basename
         item = QTableWidgetItem(os.path.basename(file_path))
         item.setData(Qt.UserRole, file_path)
         self.setItem(row, 0, item)
         self.setItem(row, 1, QTableWidgetItem(format_info))
         self.setItem(row, 2, QTableWidgetItem(formatted_duration))
         self.setItem(row, 3, QTableWidgetItem(formatted_size))
+        self._set_status_cell(row, 'idle')
+
+    def _row_for_file(self, file_path):
+        for row in range(self.rowCount()):
+            item = self.item(row, 0)
+            if item and item.data(Qt.UserRole) == file_path:
+                return row
+        return -1
+
+    def _set_status_cell(self, row, status, progress=0):
+        col = self._STATUS_COL
+        if status == 'idle':
+            lbl = QLabel("—")
+            lbl.setAlignment(Qt.AlignCenter)
+            self.setCellWidget(row, col, lbl)
+        elif status == 'pending':
+            lbl = QLabel("En cola")
+            lbl.setAlignment(Qt.AlignCenter)
+            lbl.setStyleSheet("color: gray;")
+            self.setCellWidget(row, col, lbl)
+        elif status == 'converting':
+            bar = QProgressBar()
+            bar.setRange(0, 100)
+            bar.setValue(progress)
+            bar.setFormat(f"{progress}%")
+            bar.setTextVisible(True)
+            self.setCellWidget(row, col, bar)
+        elif status == 'done':
+            lbl = QLabel("✓ Listo")
+            lbl.setAlignment(Qt.AlignCenter)
+            lbl.setStyleSheet("color: #2ecc40; font-weight: bold;")
+            self.setCellWidget(row, col, lbl)
+        elif status == 'error':
+            lbl = QLabel("✗ Error")
+            lbl.setAlignment(Qt.AlignCenter)
+            lbl.setStyleSheet("color: #ff4136; font-weight: bold;")
+            self.setCellWidget(row, col, lbl)
+        elif status == 'cancelled':
+            lbl = QLabel("Cancelado")
+            lbl.setAlignment(Qt.AlignCenter)
+            lbl.setStyleSheet("color: #ff851b;")
+            self.setCellWidget(row, col, lbl)
+
+    def set_file_status(self, file_path, status, progress=0):
+        """Set the status cell for a given file path."""
+        row = self._row_for_file(file_path)
+        if row != -1:
+            self._set_status_cell(row, status, progress)
+
+    def update_file_progress(self, file_path, progress):
+        """Update the progress bar value for a file currently being converted."""
+        row = self._row_for_file(file_path)
+        if row == -1:
+            return
+        widget = self.cellWidget(row, self._STATUS_COL)
+        if isinstance(widget, QProgressBar):
+            widget.setValue(progress)
+            widget.setFormat(f"{progress}%")
+        else:
+            self._set_status_cell(row, 'converting', progress)
+
+    def reset_all_statuses(self):
+        """Reset the status column for all rows to idle."""
+        for row in range(self.rowCount()):
+            self._set_status_cell(row, 'idle')
 
 class ConversionThread(QThread):
-    progress_updated = pyqtSignal(str, int)
-    file_progress_updated = pyqtSignal(str, int)
-    error_occurred = pyqtSignal(str)
+    """Converts a single video file. Emits progress (0-100) and signals for done/error."""
+    progress_updated  = pyqtSignal(int)   # percent complete (0-100)
+    conversion_done   = pyqtSignal()       # emitted only on successful completion
+    error_occurred    = pyqtSignal(str)    # emitted on ffmpeg error
 
-    def __init__(self, files, output_folder, format_preset, quality_setting, encoder=ENCODER_CPU):
+    def __init__(self, file_path, output_folder, format_preset, quality_setting, encoder=ENCODER_CPU):
         super().__init__()
-        self.files = files
+        self.file_path = file_path
         self.output_folder = output_folder
         self.conversion_preset = ConversionPreset(format_preset, quality_setting)
         self.encoder = encoder
         self.running = True
         self.process = None
-        self.current_output_path = None
+        self.output_path = None
 
     def _build_output_kwargs(self, resolved_encoder, codec):
         """Build ffmpeg output keyword arguments for the resolved encoder and codec."""
@@ -272,91 +335,68 @@ class ConversionThread(QThread):
             'progress': 'pipe:1',
         }
         if resolved_encoder == ENCODER_NVIDIA:
-            # NVENC: VBR with constant quality target (CQ mirrors CRF scale)
             base.update({'vcodec': codec, 'preset': 'p4', 'rc': 'vbr', 'cq': crf})
         elif resolved_encoder == ENCODER_INTEL:
-            # QSV: ICQ (Intelligent Constant Quality) mode
             base.update({'vcodec': codec, 'global_quality': crf, 'look_ahead': '1'})
         elif resolved_encoder == ENCODER_AMD:
-            # AMF: constant QP mode
             base.update({'vcodec': codec, 'rc': 'cqp', 'qp_i': crf, 'qp_p': crf})
         else:
-            # CPU
             base.update({'vcodec': codec, 'preset': 'slow', 'crf': crf})
         return base
 
     def run(self):
         try:
-            total_files = len(self.files)
-            for index, file_path in enumerate(self.files):
+            base_name = os.path.splitext(os.path.basename(self.file_path))[0]
+            container_ext = self.conversion_preset.get_container_extension()
+            self.output_path = os.path.join(self.output_folder, f"{base_name}{container_ext}")
+
+            duration = get_video_duration(self.file_path)
+            resolved_encoder, vcodec = self.conversion_preset.resolve_encoder(self.encoder)
+
+            try:
+                self.process = (
+                    ffmpeg
+                    .input(self.file_path)
+                    .output(self.output_path, **self._build_output_kwargs(resolved_encoder, vcodec))
+                    .overwrite_output()
+                    .run_async(pipe_stdout=True, pipe_stderr=True)
+                )
+            except ffmpeg.Error as e:
+                self.error_occurred.emit(e.stderr.decode())
+                return
+
+            while True:
                 if not self.running:
                     break
-
-                # Generate output file name based on selected container
-                base_name = os.path.splitext(os.path.basename(file_path))[0]
-                container_ext = self.conversion_preset.get_container_extension()
-                output_path = os.path.join(self.output_folder, f"{base_name}{container_ext}")
-                self.current_output_path = output_path  # Store current output file path
-
-                # Update global progress before starting file conversion
-                self.progress_updated.emit(file_path, int((index / total_files) * 100))
-
-                # Get video duration for current file
-                duration = get_video_duration(file_path)
-                self.file_progress_updated.emit(file_path, 0)
-
-                # Resolve encoder and codec for this file/preset combination
-                resolved_encoder, vcodec = self.conversion_preset.resolve_encoder(self.encoder)
-
-                try:
-                    self.process = (
-                        ffmpeg
-                        .input(file_path)
-                        .output(output_path, **self._build_output_kwargs(resolved_encoder, vcodec))
-                        .overwrite_output()
-                        .run_async(pipe_stdout=True, pipe_stderr=True)
-                    )
-                except ffmpeg.Error as e:
-                    self.error_occurred.emit(f"Error converting {file_path}: {e.stderr.decode()}")
-                    continue
-
-                # Read progress information from ffmpeg output
-                while True:
-                    if not self.running:
-                        break
-                    line = self.process.stdout.readline()
-                    if not line:
-                        break
-                    line = line.decode('utf-8').strip()
-                    if line.startswith("out_time_ms="):
-                        try:
-                            out_time_ms = int(line.split("=")[1])
-                            if duration > 0:
-                                percent_file = min(100, int((out_time_ms / (duration * 1000000)) * 100))
-                                self.file_progress_updated.emit(file_path, percent_file)
-                        except Exception:
-                            pass
-                    if line.startswith("progress="):
-                        if line.split("=")[1] == "end":
-                            self.file_progress_updated.emit(file_path, 100)
-                            break
-                self.process.wait()
-
-                # If conversion was stopped, attempt to remove incomplete output file
-                if not self.running:
+                line = self.process.stdout.readline()
+                if not line:
+                    break
+                line = line.decode('utf-8').strip()
+                if line.startswith("out_time_ms="):
                     try:
-                        if os.path.exists(output_path):
-                            os.remove(output_path)
-                    except Exception as e:
-                        self.error_occurred.emit(f"Error removing incomplete file {output_path}: {str(e)}")
+                        out_time_ms = int(line.split("=")[1])
+                        if duration > 0:
+                            percent = min(99, int((out_time_ms / (duration * 1000000)) * 100))
+                            self.progress_updated.emit(percent)
+                    except Exception:
+                        pass
+                elif line == "progress=end":
+                    self.progress_updated.emit(100)
                     break
 
-                # Update global progress after file conversion
-                self.progress_updated.emit(file_path, int(((index + 1) / total_files) * 100))
+            self.process.wait()
 
-            self.progress_updated.emit("Conversion completed", 100)
+            if not self.running:
+                try:
+                    if self.output_path and os.path.exists(self.output_path):
+                        os.remove(self.output_path)
+                except Exception:
+                    pass
+            else:
+                self.conversion_done.emit()
+
         except Exception as e:
-            self.error_occurred.emit(f"Unexpected error: {str(e)}")
+            self.error_occurred.emit(f"Error inesperado: {str(e)}")
 
     def stop(self):
         self.running = False
@@ -364,13 +404,10 @@ class ConversionThread(QThread):
             if self.process is not None:
                 self.process.kill()
                 self.process.wait()
-            if self.current_output_path and os.path.exists(self.current_output_path):
-                os.remove(self.current_output_path)
-        except Exception as e:
-            self.error_occurred.emit(f"Error stopping conversion: {str(e)}")
-        finally:
-            self.progress_updated.emit("Conversion cancelled", 0)
-            self.file_progress_updated.emit("Conversion cancelled", 0)
+            if self.output_path and os.path.exists(self.output_path):
+                os.remove(self.output_path)
+        except Exception:
+            pass
 
 class MainWindow(QMainWindow):
     def __init__(self):
