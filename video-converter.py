@@ -362,7 +362,11 @@ class ConversionThread(QThread):
                     .run_async(pipe_stdout=True, pipe_stderr=True)
                 )
             except ffmpeg.Error as e:
-                self.error_occurred.emit(e.stderr.decode())
+                msg = e.stderr.decode('utf-8', errors='replace') if e.stderr else str(e)
+                self.error_occurred.emit(msg)
+                return
+            except FileNotFoundError:
+                self.error_occurred.emit("ffmpeg no encontrado. Asegúrate de tenerlo instalado y en el PATH.")
                 return
 
             while True:
@@ -404,6 +408,9 @@ class ConversionThread(QThread):
             if self.process is not None:
                 self.process.kill()
                 self.process.wait()
+        except Exception:
+            pass
+        try:
             if self.output_path and os.path.exists(self.output_path):
                 os.remove(self.output_path)
         except Exception:
@@ -416,7 +423,8 @@ class MainWindow(QMainWindow):
         self.next_index = 0
         # Parallel conversion state
         self.pending_files = []          # queue of file paths waiting to start
-        self.active_threads = {}         # file_path -> ConversionThread
+        self.active_threads = {}         # file_path -> ConversionThread (active slots)
+        self._thread_refs = set()        # keeps thread objects alive until Qt finishes them
         self.completed_file_paths = set()
         self.total_count = 0
         self.setup_ui()
@@ -547,6 +555,10 @@ class MainWindow(QMainWindow):
             thread.progress_updated.connect(lambda p, f=fp: self._on_file_progress(f, p))
             thread.conversion_done.connect(lambda f=fp: self._on_file_done(f))
             thread.error_occurred.connect(lambda err, f=fp: self._on_file_error(f, err))
+            # Keep a reference until Qt's own finished signal fires — prevents
+            # "QThread: Destroyed while thread is still running" crash.
+            self._thread_refs.add(thread)
+            thread.finished.connect(lambda t=thread: self._thread_refs.discard(t))
             self.active_threads[fp] = thread
             self.list_widget.set_file_status(fp, 'converting', 0)
             thread.start()
@@ -741,8 +753,12 @@ class MainWindow(QMainWindow):
         reply = QMessageBox.question(self, "Confirmar salida", "¿Estás seguro de cerrar el programa?",
                                      QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
+            self.pending_files.clear()
             for thread in list(self.active_threads.values()):
                 thread.stop()
+            # Wait for each thread to finish cleanly before the app exits
+            for thread in list(self.active_threads.values()):
+                thread.wait(5000)
             self.active_threads.clear()
             state_file = os.path.join(os.path.dirname(__file__), 'last_state.xml')
             self.save_state_to_file(state_file)
