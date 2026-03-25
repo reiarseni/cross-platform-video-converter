@@ -266,12 +266,14 @@ class ConversionThread(QThread):
     file_progress_updated = pyqtSignal(str, int)
     error_occurred = pyqtSignal(str)
 
-    def __init__(self, files, output_folder, format_preset, quality_setting, encoder=ENCODER_CPU):
+    def __init__(self, files, output_folder, format_preset, quality_setting,
+                 encoder=ENCODER_CPU, volume_boost=0):
         super().__init__()
         self.files = files
         self.output_folder = output_folder
         self.conversion_preset = ConversionPreset(format_preset, quality_setting)
         self.encoder = encoder
+        self.volume_boost = volume_boost
         self.running = True
         self.process = None
         self.current_output_path = None
@@ -279,12 +281,16 @@ class ConversionThread(QThread):
     def _build_output_kwargs(self, resolved_encoder, codec):
         """Build ffmpeg output keyword arguments for the resolved encoder and codec."""
         if self.conversion_preset.is_audio_only():
-            return {
+            base = {
                 'acodec': 'libmp3lame',
                 'audio_bitrate': self.conversion_preset.get_crf(),
                 'vn': None,
                 'progress': 'pipe:1',
             }
+            if self.volume_boost > 0 and self.volume_boost != 100:
+                gain = self.volume_boost / 100.0
+                base['af'] = f'volume={gain:.4f},alimiter=level_out=0.95'
+            return base
 
         crf = self.conversion_preset.get_crf()
         base = {
@@ -305,6 +311,9 @@ class ConversionThread(QThread):
         else:
             # CPU
             base.update({'vcodec': codec, 'preset': 'slow', 'crf': crf})
+        if self.volume_boost > 0 and self.volume_boost != 100:
+            gain = self.volume_boost / 100.0
+            base['af'] = f'volume={gain:.4f},alimiter=level_out=0.95'
         return base
 
     def run(self):
@@ -432,6 +441,19 @@ class MainWindow(QMainWindow):
         self.encoder_combo = QComboBox()
         self.encoder_combo.addItems(AVAILABLE_ENCODERS)
         quality_layout.addWidget(self.encoder_combo)
+        quality_layout.addWidget(QLabel("Volumen:"))
+        self.volume_spin = QSpinBox()
+        self.volume_spin.setRange(0, 400)
+        self.volume_spin.setValue(0)
+        self.volume_spin.setSuffix("%")
+        self.volume_spin.setSpecialValueText("Sin boost")
+        self.volume_spin.setToolTip(
+            "0 = sin cambio de volumen\n"
+            "100% = volumen original\n"
+            "200% = doble de volumen\n"
+            "400% = cuádruple (se aplica limitador para evitar distorsión)"
+        )
+        quality_layout.addWidget(self.volume_spin)
         quality_layout.addWidget(self.btn_start)
 
         # Configure layout
@@ -483,6 +505,8 @@ class MainWindow(QMainWindow):
         format_elem.text = self.format_combo.currentText()
         encoder_elem = ET.SubElement(root, "encoder")
         encoder_elem.text = self.encoder_combo.currentText()
+        volume_elem = ET.SubElement(root, "volume_boost")
+        volume_elem.text = str(self.volume_spin.value())
         index_elem = ET.SubElement(root, "next_index")
         if adjusted_next_index is not None:
             index_elem.text = str(adjusted_next_index)
@@ -526,6 +550,12 @@ class MainWindow(QMainWindow):
                 idx = self.encoder_combo.findText(enc)
                 if idx != -1:
                     self.encoder_combo.setCurrentIndex(idx)
+            volume_elem = root.find('volume_boost')
+            if volume_elem is not None:
+                try:
+                    self.volume_spin.setValue(int(volume_elem.text.strip()))
+                except ValueError:
+                    pass
             index_elem = root.find('next_index')
             if index_elem is not None:
                 try:
@@ -594,6 +624,13 @@ class MainWindow(QMainWindow):
                     idx = self.encoder_combo.findText(enc)
                     if idx != -1:
                         self.encoder_combo.setCurrentIndex(idx)
+                # Load volume boost
+                volume_elem = root.find('volume_boost')
+                if volume_elem is not None:
+                    try:
+                        self.volume_spin.setValue(int(volume_elem.text.strip()))
+                    except ValueError:
+                        pass
                 # Load next index and select that row
                 index_elem = root.find('next_index')
                 if index_elem is not None:
@@ -651,6 +688,7 @@ class MainWindow(QMainWindow):
             self.dependent_quality_combo.setEnabled(True)
             self.format_combo.setEnabled(True)
             self.encoder_combo.setEnabled(True)
+            self.volume_spin.setEnabled(True)
             self.list_widget.setEnabled(True)
             self.btn_import.setEnabled(True)
             self.conversion_thread = None
@@ -669,7 +707,8 @@ class MainWindow(QMainWindow):
                 self.output_folder,
                 self.format_combo.currentText(),
                 self.dependent_quality_combo.currentText(),
-                self.encoder_combo.currentText()
+                self.encoder_combo.currentText(),
+                volume_boost=self.volume_spin.value()
             )
 
             self.conversion_thread.progress_updated.connect(self.update_progress)
@@ -684,6 +723,7 @@ class MainWindow(QMainWindow):
             self.dependent_quality_combo.setEnabled(False)
             self.format_combo.setEnabled(False)
             self.encoder_combo.setEnabled(False)
+            self.volume_spin.setEnabled(False)
             self.list_widget.setEnabled(False)
             self.btn_import.setEnabled(False)
             self.progress_bar.setValue(0)
@@ -720,6 +760,7 @@ class MainWindow(QMainWindow):
         self.dependent_quality_combo.setEnabled(True)
         self.format_combo.setEnabled(True)
         self.encoder_combo.setEnabled(True)
+        self.volume_spin.setEnabled(True)
         self.list_widget.setEnabled(True)
         self.btn_import.setEnabled(True)
         self.conversion_thread = None
@@ -748,6 +789,8 @@ class MainWindow(QMainWindow):
             format_elem.text = self.format_combo.currentText()
             encoder_elem = ET.SubElement(root, "encoder")
             encoder_elem.text = self.encoder_combo.currentText()
+            volume_elem = ET.SubElement(root, "volume_boost")
+            volume_elem.text = str(self.volume_spin.value())
             index_elem = ET.SubElement(root, "next_index")
             index_elem.text = str(self.next_index)
             tree = ET.ElementTree(root)
