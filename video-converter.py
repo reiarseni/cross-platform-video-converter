@@ -43,8 +43,9 @@ for _label, _codecs in _GPU_CANDIDATES:
     if any(_has_encoder(c, _FFMPEG_ENCODERS_TEXT) for c in _codecs):
         AVAILABLE_ENCODERS.append(_label)
 
-# Supported video file extensions
-VIDEO_EXTENSIONS = ['.mp4', '.avi', '.mov', '.mkv', '.flv', '.wmv', '.webm', '.m4v', '.mpg', '.mpeg', '.3gp']
+# Supported video/audio file extensions
+VIDEO_EXTENSIONS = ['.mp4', '.avi', '.mov', '.mkv', '.flv', '.wmv', '.webm', '.m4v', '.mpg', '.mpeg', '.3gp',
+                    '.mp3', '.aac', '.wav', '.flac', '.ogg', '.m4a', '.wma', '.opus']
 
 def is_video_file(file_path):
     """Checks if a file is a video based on its extension"""
@@ -113,6 +114,11 @@ class ConversionPreset:
             "preset_quality": {"Baja": "28", "Media": "23", "Alta": "18"},
             "container": ".mkv",
             "vcodec": "libx264"
+        },
+        "MP3 (Audio)": {
+            "preset_quality": {"Baja": "128k", "Media": "192k", "Alta": "320k"},
+            "container": ".mp3",
+            "vcodec": None
         }
     }
 
@@ -122,6 +128,7 @@ class ConversionPreset:
         "MP4 (H.265)": {ENCODER_NVIDIA: "hevc_nvenc", ENCODER_INTEL: "hevc_qsv", ENCODER_AMD: "hevc_amf"},
         "AVI (MPEG-4)": {},
         "MKV (H.264)": {ENCODER_NVIDIA: "h264_nvenc", ENCODER_INTEL: "h264_qsv", ENCODER_AMD: "h264_amf"},
+        "MP3 (Audio)": {},
     }
 
     def __init__(self, format_preset: str, quality: str):
@@ -156,6 +163,10 @@ class ConversionPreset:
         """Returns the CPU video codec based on the selected format preset."""
         return self._preset_data.get(self.format_preset, {}).get("vcodec", "libx264")
 
+    def is_audio_only(self) -> bool:
+        """Returns True if this preset produces an audio-only output (no video stream)."""
+        return self._preset_data.get(self.format_preset, {}).get("vcodec") is None
+
     @classmethod
     def get_gpu_codec(cls, format_preset, encoder):
         """Returns the GPU codec name for the given preset and encoder, or None if unsupported."""
@@ -166,6 +177,9 @@ class ConversionPreset:
         Returns (resolved_encoder_label, codec) for the given preference.
         Falls back to CPU if the GPU encoder is unavailable for this preset.
         """
+        if self.is_audio_only():
+            return ENCODER_CPU, None
+
         if preferred_encoder == ENCODER_CPU:
             return ENCODER_CPU, self.get_video_codec()
 
@@ -264,6 +278,14 @@ class ConversionThread(QThread):
 
     def _build_output_kwargs(self, resolved_encoder, codec):
         """Build ffmpeg output keyword arguments for the resolved encoder and codec."""
+        if self.conversion_preset.is_audio_only():
+            return {
+                'acodec': 'libmp3lame',
+                'audio_bitrate': self.conversion_preset.get_crf(),
+                'vn': None,
+                'progress': 'pipe:1',
+            }
+
         crf = self.conversion_preset.get_crf()
         base = {
             'acodec': 'aac',
