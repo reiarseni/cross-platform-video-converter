@@ -2,77 +2,127 @@ import os
 import sys
 import subprocess
 import xml.etree.ElementTree as ET
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-                             QTableWidget, QTableWidgetItem, QPushButton, QComboBox, QProgressBar, QLabel,
-                             QFileDialog, QMessageBox, QSpinBox)
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
+import time
+import threading
+import queue
+from PyQt5.QtWidgets import (
+    QApplication,
+    QMainWindow,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QTableWidget,
+    QTableWidgetItem,
+    QPushButton,
+    QComboBox,
+    QProgressBar,
+    QLabel,
+    QFileDialog,
+    QMessageBox,
+    QSpinBox,
+)
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QUrl
+from PyQt5.QtGui import QDesktopServices
 import ffmpeg
 
 # Encoder labels
-ENCODER_AUTO   = "Auto"
-ENCODER_CPU    = "CPU"
+ENCODER_AUTO = "Auto"
+ENCODER_CPU = "CPU"
 ENCODER_NVIDIA = "NVIDIA (NVENC)"
-ENCODER_INTEL  = "Intel (QSV)"
-ENCODER_AMD    = "AMD (AMF)"
+ENCODER_INTEL = "Intel (QSV)"
+ENCODER_AMD = "AMD (AMF)"
+
 
 def _scan_ffmpeg_encoder_list():
     """Queries ffmpeg -encoders and returns the raw text output."""
     try:
         result = subprocess.run(
-            ['ffmpeg', '-hide_banner', '-encoders'],
-            capture_output=True, text=True, timeout=5
+            ["ffmpeg", "-hide_banner", "-encoders"],
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         return result.stdout + result.stderr
     except Exception:
         return ""
 
+
 def _has_encoder(codec, encoder_text):
     """Returns True if codec name appears in the ffmpeg -encoders output."""
     return codec in encoder_text
+
 
 _FFMPEG_ENCODERS_TEXT = _scan_ffmpeg_encoder_list()
 
 # Build list of available encoders at startup (Auto and CPU are always available)
 AVAILABLE_ENCODERS = [ENCODER_AUTO, ENCODER_CPU]
 _GPU_CANDIDATES = [
-    (ENCODER_NVIDIA, ['h264_nvenc', 'hevc_nvenc']),
-    (ENCODER_INTEL,  ['h264_qsv',   'hevc_qsv']),
-    (ENCODER_AMD,    ['h264_amf',   'hevc_amf']),
+    (ENCODER_NVIDIA, ["h264_nvenc", "hevc_nvenc"]),
+    (ENCODER_INTEL, ["h264_qsv", "hevc_qsv"]),
+    (ENCODER_AMD, ["h264_amf", "hevc_amf"]),
 ]
 for _label, _codecs in _GPU_CANDIDATES:
     if any(_has_encoder(c, _FFMPEG_ENCODERS_TEXT) for c in _codecs):
         AVAILABLE_ENCODERS.append(_label)
 
 # Supported video/audio file extensions
-VIDEO_EXTENSIONS = ['.mp4', '.avi', '.mov', '.mkv', '.flv', '.wmv', '.webm', '.m4v', '.mpg', '.mpeg', '.3gp',
-                    '.mp3', '.aac', '.wav', '.flac', '.ogg', '.m4a', '.wma', '.opus']
+VIDEO_EXTENSIONS = [
+    ".mp4",
+    ".avi",
+    ".mov",
+    ".mkv",
+    ".flv",
+    ".wmv",
+    ".webm",
+    ".m4v",
+    ".mpg",
+    ".mpeg",
+    ".3gp",
+    ".mp3",
+    ".aac",
+    ".wav",
+    ".flac",
+    ".ogg",
+    ".m4a",
+    ".wma",
+    ".opus",
+]
+
+HANG_TIMEOUT = 60  # segundos sin progreso → hang
+MAX_RETRIES = 2  # reintentos por archivo
+
 
 def is_video_file(file_path):
     """Checks if a file is a video based on its extension"""
     ext = os.path.splitext(file_path)[1].lower()
     return ext in VIDEO_EXTENSIONS
 
+
 def get_video_codec(file_path):
     """Detects the video codec of the given file using ffmpeg.probe"""
     try:
         probe = ffmpeg.probe(file_path)
-        video_streams = [stream for stream in probe['streams'] if stream.get('codec_type') == 'video']
+        video_streams = [
+            stream for stream in probe["streams"] if stream.get("codec_type") == "video"
+        ]
         if video_streams:
-            return video_streams[0].get('codec_name', 'Unknown')
+            return video_streams[0].get("codec_name", "Unknown")
         else:
             return "Unknown"
     except Exception:
         return "Unknown"
 
+
 def get_video_duration(file_path):
     """Retrieves the duration of the video file in seconds using ffmpeg.probe"""
     try:
         probe = ffmpeg.probe(file_path)
-        format_info = probe.get('format', {})
-        duration = float(format_info.get('duration', 0))
+        format_info = probe.get("format", {})
+        duration = float(format_info.get("duration", 0))
         return duration
     except Exception:
         return 0
+
 
 def format_duration(seconds):
     """Formats duration in seconds to HH:MM:SS format"""
@@ -80,54 +130,69 @@ def format_duration(seconds):
     h, m = divmod(m, 60)
     return f"{h:02d}:{m:02d}:{s:02d}"
 
+
 def format_size(bytes_size):
     """Formats file size in bytes to a human-readable string"""
     if bytes_size < 1024:
         return f"{bytes_size} B"
     elif bytes_size < 1024 * 1024:
-        return f"{bytes_size/1024:.2f} KB"
+        return f"{bytes_size / 1024:.2f} KB"
     else:
-        return f"{bytes_size/(1024*1024):.2f} MB"
+        return f"{bytes_size / (1024 * 1024):.2f} MB"
+
 
 class ConversionPreset:
     """
     Centralizes conversion parameters based on format preset and dependent quality selection.
     Follows the Single Responsibility Principle (SRP) for conversion parameter logic.
     """
+
     _preset_data = {
         "MP4 (H.264)": {
             "preset_quality": {"Baja": "28", "Media": "23", "Alta": "18"},
             "container": ".mp4",
-            "vcodec": "libx264"
+            "vcodec": "libx264",
         },
         "MP4 (H.265)": {
             "preset_quality": {"Baja": "30", "Media": "25", "Alta": "20"},
             "container": ".mp4",
-            "vcodec": "libx265"
+            "vcodec": "libx265",
         },
         "AVI (MPEG-4)": {
             "preset_quality": {"Baja": "32", "Media": "27", "Alta": "22"},
             "container": ".avi",
-            "vcodec": "mpeg4"
+            "vcodec": "mpeg4",
         },
         "MKV (H.264)": {
             "preset_quality": {"Baja": "28", "Media": "23", "Alta": "18"},
             "container": ".mkv",
-            "vcodec": "libx264"
+            "vcodec": "libx264",
         },
         "MP3 (Audio)": {
             "preset_quality": {"Baja": "128k", "Media": "192k", "Alta": "320k"},
             "container": ".mp3",
-            "vcodec": None
-        }
+            "vcodec": None,
+        },
     }
 
     # GPU codec equivalents per format preset (AVI/mpeg4 has no GPU encoder in FFmpeg)
     _gpu_codec_map = {
-        "MP4 (H.264)": {ENCODER_NVIDIA: "h264_nvenc", ENCODER_INTEL: "h264_qsv", ENCODER_AMD: "h264_amf"},
-        "MP4 (H.265)": {ENCODER_NVIDIA: "hevc_nvenc", ENCODER_INTEL: "hevc_qsv", ENCODER_AMD: "hevc_amf"},
+        "MP4 (H.264)": {
+            ENCODER_NVIDIA: "h264_nvenc",
+            ENCODER_INTEL: "h264_qsv",
+            ENCODER_AMD: "h264_amf",
+        },
+        "MP4 (H.265)": {
+            ENCODER_NVIDIA: "hevc_nvenc",
+            ENCODER_INTEL: "hevc_qsv",
+            ENCODER_AMD: "hevc_amf",
+        },
         "AVI (MPEG-4)": {},
-        "MKV (H.264)": {ENCODER_NVIDIA: "h264_nvenc", ENCODER_INTEL: "h264_qsv", ENCODER_AMD: "h264_amf"},
+        "MKV (H.264)": {
+            ENCODER_NVIDIA: "h264_nvenc",
+            ENCODER_INTEL: "h264_qsv",
+            ENCODER_AMD: "h264_amf",
+        },
         "MP3 (Audio)": {},
     }
 
@@ -151,9 +216,11 @@ class ConversionPreset:
 
     def get_crf(self) -> str:
         """Returns the CRF value based on the selected format preset and quality."""
-        return self._preset_data.get(self.format_preset, {}) \
-                   .get("preset_quality", {}) \
-                   .get(self.quality, "23")
+        return (
+            self._preset_data.get(self.format_preset, {})
+            .get("preset_quality", {})
+            .get(self.quality, "23")
+        )
 
     def get_container_extension(self) -> str:
         """Returns the container extension based on the selected format preset."""
@@ -198,13 +265,16 @@ class ConversionPreset:
         # Preset doesn't support this GPU (e.g. AVI + NVENC) → fall back to CPU
         return ENCODER_CPU, self.get_video_codec()
 
+
 class DragDropTableWidget(QTableWidget):
     """Custom TableWidget for dragging and dropping files"""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setColumnCount(4)
-        self.setHorizontalHeaderLabels(["File", "Format", "Video Duration", "Video Size"])
+        self.setColumnCount(5)
+        self.setHorizontalHeaderLabels(
+            ["File", "Format", "Video Duration", "Video Size", ""]
+        )
         self.setAcceptDrops(True)
         self.setDragDropMode(QTableWidget.DropOnly)
         self.setSelectionBehavior(QTableWidget.SelectRows)
@@ -212,14 +282,15 @@ class DragDropTableWidget(QTableWidget):
 
     def resizeEvent(self, event):
         # Adjust column widths: first column gets 50% of the table width,
-        # and the remaining 3 columns share the other 50% equally.
+        # and the remaining 4 columns share the other 50% equally.
         total_width = self.viewport().width()
         col0_width = int(total_width * 0.5)
-        other_width = int((total_width * 0.5) / 3)
+        other_width = int((total_width * 0.5) / 4)
         self.setColumnWidth(0, col0_width)
         self.setColumnWidth(1, other_width)
         self.setColumnWidth(2, other_width)
         self.setColumnWidth(3, other_width)
+        self.setColumnWidth(4, 40)
         super().resizeEvent(event)
 
     def dragEnterEvent(self, event):
@@ -235,17 +306,23 @@ class DragDropTableWidget(QTableWidget):
     def dropEvent(self, event):
         files = [url.toLocalFile() for url in event.mimeData().urls()]
         valid_files = [f for f in files if os.path.isfile(f) and is_video_file(f)]
-        existing_files = [self.item(row, 0).data(Qt.UserRole) for row in range(self.rowCount())
-                          if self.item(row, 0) is not None]
+        existing_files = [
+            self.item(row, 0).data(Qt.UserRole)
+            for row in range(self.rowCount())
+            if self.item(row, 0) is not None
+        ]
         for file in valid_files:
             if file not in existing_files:
                 self.add_file(file)
         event.acceptProposedAction()
 
     def add_file(self, file_path):
-        # Auto-detect video codec and determine TV compatibility
         codec = get_video_codec(file_path)
-        compatibility = "Compatible with old TVs" if codec.lower() in ['h264', 'hevc', 'mpeg4'] else "Not very compatible with old TVs"
+        compatibility = (
+            "Compatible with old TVs"
+            if codec.lower() in ["h264", "hevc", "mpeg4"]
+            else "Not very compatible with old TVs"
+        )
         format_info = f"{codec} ({compatibility})"
         duration = get_video_duration(file_path)
         formatted_duration = format_duration(duration)
@@ -253,21 +330,39 @@ class DragDropTableWidget(QTableWidget):
         formatted_size = format_size(file_size)
         row = self.rowCount()
         self.insertRow(row)
-        # Store full file path in user role and display only the basename
         item = QTableWidgetItem(os.path.basename(file_path))
         item.setData(Qt.UserRole, file_path)
         self.setItem(row, 0, item)
         self.setItem(row, 1, QTableWidgetItem(format_info))
         self.setItem(row, 2, QTableWidgetItem(formatted_duration))
         self.setItem(row, 3, QTableWidgetItem(formatted_size))
+        btn = QPushButton("✕")
+        btn.setFixedWidth(30)
+        btn.clicked.connect(lambda _, b=btn: self._remove_row_for_button(b))
+        self.setCellWidget(row, 4, btn)
+
+    def _remove_row_for_button(self, button):
+        for row in range(self.rowCount()):
+            if self.cellWidget(row, 4) is button:
+                self.removeRow(row)
+                break
+
 
 class ConversionThread(QThread):
     progress_updated = pyqtSignal(str, int)
     file_progress_updated = pyqtSignal(str, int)
     error_occurred = pyqtSignal(str)
+    warning_signal = pyqtSignal(str)
 
-    def __init__(self, files, output_folder, format_preset, quality_setting,
-                 encoder=ENCODER_CPU, volume_boost=0):
+    def __init__(
+        self,
+        files,
+        output_folder,
+        format_preset,
+        quality_setting,
+        encoder=ENCODER_CPU,
+        volume_boost=0,
+    ):
         super().__init__()
         self.files = files
         self.output_folder = output_folder
@@ -278,42 +373,54 @@ class ConversionThread(QThread):
         self.process = None
         self.current_output_path = None
 
+    def _read_stdout(self, process, q):
+        for line in iter(process.stdout.readline, b""):
+            q.put(line)
+        q.put(None)  # sentinel EOF
+
+    def _drain_stderr(self, process):
+        try:
+            while process.stderr.read(4096):
+                pass
+        except Exception:
+            pass
+
     def _build_output_kwargs(self, resolved_encoder, codec):
         """Build ffmpeg output keyword arguments for the resolved encoder and codec."""
         if self.conversion_preset.is_audio_only():
             base = {
-                'acodec': 'libmp3lame',
-                'audio_bitrate': self.conversion_preset.get_crf(),
-                'vn': None,
-                'progress': 'pipe:1',
+                "acodec": "libmp3lame",
+                "audio_bitrate": self.conversion_preset.get_crf(),
+                "vn": None,
+                "progress": "pipe:1",
             }
             if self.volume_boost > 0 and self.volume_boost != 100:
                 gain = self.volume_boost / 100.0
-                base['af'] = f'volume={gain:.4f},alimiter=level_out=0.95'
+                base["af"] = f"volume={gain:.4f},alimiter=level_out=0.95"
             return base
 
         crf = self.conversion_preset.get_crf()
         base = {
-            'acodec': 'aac',
-            'audio_bitrate': '192k',
-            'movflags': '+faststart',
-            'progress': 'pipe:1',
+            "acodec": "aac",
+            "audio_bitrate": "192k",
+            "movflags": "+faststart",
+            "progress": "pipe:1",
         }
         if resolved_encoder == ENCODER_NVIDIA:
             # NVENC: VBR with constant quality target (CQ mirrors CRF scale)
-            base.update({'vcodec': codec, 'preset': 'p4', 'rc': 'vbr', 'cq': crf})
+            base.update({"vcodec": codec, "preset": "p4", "rc": "vbr", "cq": crf})
         elif resolved_encoder == ENCODER_INTEL:
             # QSV: ICQ (Intelligent Constant Quality) mode
-            base.update({'vcodec': codec, 'global_quality': crf, 'look_ahead': '1'})
+            base.update({"vcodec": codec, "global_quality": crf, "look_ahead": "1"})
         elif resolved_encoder == ENCODER_AMD:
             # AMF: constant QP mode
-            base.update({'vcodec': codec, 'rc': 'cqp', 'qp_i': crf, 'qp_p': crf})
+            base.update({"vcodec": codec, "rc": "cqp", "qp_i": crf, "qp_p": crf})
         else:
             # CPU
-            base.update({'vcodec': codec, 'preset': 'slow', 'crf': crf})
+            base.update({"vcodec": codec, "preset": "slow", "crf": crf})
         if self.volume_boost > 0 and self.volume_boost != 100:
             gain = self.volume_boost / 100.0
-            base['af'] = f'volume={gain:.4f},alimiter=level_out=0.95'
+            base["af"] = f"volume={gain:.4f},alimiter=level_out=0.95"
         return base
 
     def run(self):
@@ -326,7 +433,9 @@ class ConversionThread(QThread):
                 # Generate output file name based on selected container
                 base_name = os.path.splitext(os.path.basename(file_path))[0]
                 container_ext = self.conversion_preset.get_container_extension()
-                output_path = os.path.join(self.output_folder, f"{base_name}{container_ext}")
+                output_path = os.path.join(
+                    self.output_folder, f"{base_name}{container_ext}"
+                )
                 self.current_output_path = output_path  # Store current output file path
 
                 # Update global progress before starting file conversion
@@ -337,41 +446,104 @@ class ConversionThread(QThread):
                 self.file_progress_updated.emit(file_path, 0)
 
                 # Resolve encoder and codec for this file/preset combination
-                resolved_encoder, vcodec = self.conversion_preset.resolve_encoder(self.encoder)
+                resolved_encoder, vcodec = self.conversion_preset.resolve_encoder(
+                    self.encoder
+                )
 
-                try:
-                    self.process = (
-                        ffmpeg
-                        .input(file_path)
-                        .output(output_path, **self._build_output_kwargs(resolved_encoder, vcodec))
-                        .overwrite_output()
-                        .run_async(pipe_stdout=True, pipe_stderr=True)
+                retry_count = 0
+                file_done = False
+                while not file_done and retry_count <= MAX_RETRIES:
+                    try:
+                        self.process = (
+                            ffmpeg.input(file_path)
+                            .output(
+                                output_path,
+                                **self._build_output_kwargs(resolved_encoder, vcodec),
+                            )
+                            .overwrite_output()
+                            .run_async(pipe_stdout=True, pipe_stderr=True)
+                        )
+                    except ffmpeg.Error as e:
+                        self.error_occurred.emit(
+                            f"Error converting {file_path}: {e.stderr.decode()}"
+                        )
+                        break
+
+                    # Drain stderr in a daemon thread to avoid buffer blocking
+                    stderr_drainer = threading.Thread(
+                        target=self._drain_stderr, args=(self.process,), daemon=True
                     )
-                except ffmpeg.Error as e:
-                    self.error_occurred.emit(f"Error converting {file_path}: {e.stderr.decode()}")
-                    continue
+                    stderr_drainer.start()
 
-                # Read progress information from ffmpeg output
-                while True:
-                    if not self.running:
-                        break
-                    line = self.process.stdout.readline()
-                    if not line:
-                        break
-                    line = line.decode('utf-8').strip()
-                    if line.startswith("out_time_ms="):
+                    # Read stdout via queue for non-blocking timeout
+                    q = queue.Queue()
+                    stdout_reader = threading.Thread(
+                        target=self._read_stdout, args=(self.process, q), daemon=True
+                    )
+                    stdout_reader.start()
+
+                    hung = False
+                    last_progress_time = time.time()
+                    file_done = False
+
+                    while not hung and not file_done and self.running:
                         try:
-                            out_time_ms = int(line.split("=")[1])
-                            if duration > 0:
-                                percent_file = min(100, int((out_time_ms / (duration * 1000000)) * 100))
-                                self.file_progress_updated.emit(file_path, percent_file)
+                            line = q.get(timeout=1)
+                            if line is None:  # EOF sentinel
+                                break
+                            line = line.decode("utf-8").strip()
+                            if line.startswith("out_time_ms="):
+                                try:
+                                    out_time_ms = int(line.split("=")[1])
+                                    if duration > 0:
+                                        percent_file = min(
+                                            100,
+                                            int(
+                                                (out_time_ms / (duration * 1000000))
+                                                * 100
+                                            ),
+                                        )
+                                        self.file_progress_updated.emit(
+                                            file_path, percent_file
+                                        )
+                                        last_progress_time = time.time()
+                                except Exception:
+                                    pass
+                            if line.startswith("progress="):
+                                if line.split("=")[1] == "end":
+                                    self.file_progress_updated.emit(file_path, 100)
+                                    file_done = True
+                                    break
+                        except queue.Empty:
+                            # Check for hang condition
+                            if time.time() - last_progress_time > HANG_TIMEOUT:
+                                hung = True
+                                self.warning_signal.emit(
+                                    f"FFmpeg colgado - reintentando {file_path} (intento {retry_count + 1}/{MAX_RETRIES})"
+                                )
+
+                    if hung:
+                        # Kill hung process and clean up
+                        try:
+                            self.process.kill()
+                            self.process.wait()
+                            if os.path.exists(output_path):
+                                os.remove(output_path)
                         except Exception:
                             pass
-                    if line.startswith("progress="):
-                        if line.split("=")[1] == "end":
-                            self.file_progress_updated.emit(file_path, 100)
+                        retry_count += 1
+                        if retry_count > MAX_RETRIES:
+                            self.error_occurred.emit(
+                                f"Error fatal: FFmpeg se colgó en {file_path} después de {MAX_RETRIES} reintentos"
+                            )
                             break
-                self.process.wait()
+                        # Continue to next retry
+                        continue
+                    elif file_done:
+                        self.process.wait()
+                        break
+                    elif not self.running:
+                        break
 
                 # If conversion was stopped, attempt to remove incomplete output file
                 if not self.running:
@@ -379,11 +551,15 @@ class ConversionThread(QThread):
                         if os.path.exists(output_path):
                             os.remove(output_path)
                     except Exception as e:
-                        self.error_occurred.emit(f"Error removing incomplete file {output_path}: {str(e)}")
+                        self.error_occurred.emit(
+                            f"Error removing incomplete file {output_path}: {str(e)}"
+                        )
                     break
 
                 # Update global progress after file conversion
-                self.progress_updated.emit(file_path, int(((index + 1) / total_files) * 100))
+                self.progress_updated.emit(
+                    file_path, int(((index + 1) / total_files) * 100)
+                )
 
             self.progress_updated.emit("Conversion completed", 100)
         except Exception as e:
@@ -403,12 +579,15 @@ class ConversionThread(QThread):
             self.progress_updated.emit("Conversion cancelled", 0)
             self.file_progress_updated.emit("Conversion cancelled", 0)
 
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.output_folder = None
         self.conversion_thread = None
-        self.next_index = 0  # Next video index to convert
+        self.next_index = 0
+        self.current_file_progress = 0
+        self.total_files = 0
         self.setup_ui()
         self.setWindowTitle("Conversor de Video")
         self.load_last_state()
@@ -418,6 +597,7 @@ class MainWindow(QMainWindow):
         self.list_widget = DragDropTableWidget()
         self.btn_input_folder = QPushButton("Seleccionar carpeta de entrada")
         self.btn_output_folder = QPushButton("Seleccionar carpeta de salida")
+        self.btn_add_files = QPushButton("Agregar archivos")
         self.btn_start = QPushButton("Iniciar conversión")
         self.btn_start.setStyleSheet("background-color: green; color: white;")
         self.progress_bar = QProgressBar()  # Global progress
@@ -426,6 +606,7 @@ class MainWindow(QMainWindow):
         # New buttons for export/import state
         self.btn_export = QPushButton("Exportar lista")
         self.btn_import = QPushButton("Cargar lista")
+        self.btn_open_output = QPushButton("Abrir carpeta de salida")
 
         # Modify quality layout: first preset combo then quality combo
         quality_layout = QHBoxLayout()
@@ -435,7 +616,9 @@ class MainWindow(QMainWindow):
         quality_layout.addWidget(self.format_combo)
         quality_layout.addWidget(QLabel("Calidad de salida:"))
         self.dependent_quality_combo = QComboBox()
-        self.dependent_quality_combo.addItems(ConversionPreset.get_available_qualities())
+        self.dependent_quality_combo.addItems(
+            ConversionPreset.get_available_qualities()
+        )
         quality_layout.addWidget(self.dependent_quality_combo)
         quality_layout.addWidget(QLabel("Encoder:"))
         self.encoder_combo = QComboBox()
@@ -462,6 +645,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.list_widget)
 
         folder_buttons_layout = QHBoxLayout()
+        folder_buttons_layout.addWidget(self.btn_add_files)
         folder_buttons_layout.addWidget(self.btn_input_folder)
         folder_buttons_layout.addWidget(self.btn_output_folder)
         layout.addLayout(folder_buttons_layout)
@@ -472,6 +656,8 @@ class MainWindow(QMainWindow):
         state_buttons_layout = QHBoxLayout()
         state_buttons_layout.addWidget(self.btn_export)
         state_buttons_layout.addWidget(self.btn_import)
+        state_buttons_layout.addWidget(self.btn_open_output)
+        state_buttons_layout.addStretch()
         layout.addLayout(state_buttons_layout)
 
         layout.addWidget(self.lbl_status)
@@ -485,9 +671,11 @@ class MainWindow(QMainWindow):
         # Connect signals
         self.btn_input_folder.clicked.connect(self.select_input_folder)
         self.btn_output_folder.clicked.connect(self.select_output_folder)
+        self.btn_add_files.clicked.connect(self.add_individual_files)
         self.btn_start.clicked.connect(self.toggle_conversion)
         self.btn_export.clicked.connect(self.export_state)
         self.btn_import.clicked.connect(self.import_state)
+        self.btn_open_output.clicked.connect(self.open_output_folder)
 
     def save_state_to_file(self, file_path, adjusted_next_index=None):
         root = ET.Element("app_state")
@@ -513,50 +701,54 @@ class MainWindow(QMainWindow):
         else:
             index_elem.text = str(self.next_index)
         tree = ET.ElementTree(root)
-        tree.write(file_path, encoding='utf-8', xml_declaration=True)
+        tree.write(file_path, encoding="utf-8", xml_declaration=True)
 
     def load_state_from_file(self, file_path):
         try:
             tree = ET.parse(file_path)
             root = tree.getroot()
             self.list_widget.setRowCount(0)
-            videos = root.find('videos')
+            videos = root.find("videos")
             if videos is not None:
-                for video in videos.findall('video'):
+                for video in videos.findall("video"):
                     file_path = video.text.strip()
-                    if file_path and os.path.exists(file_path) and is_video_file(file_path):
+                    if (
+                        file_path
+                        and os.path.exists(file_path)
+                        and is_video_file(file_path)
+                    ):
                         self.list_widget.add_file(file_path)
-            out_elem = root.find('output_folder')
+            out_elem = root.find("output_folder")
             if out_elem is not None:
                 folder = out_elem.text.strip()
                 if folder and os.path.isdir(folder):
                     self.output_folder = folder
                     self.lbl_status.setText(f"Carpeta de salida: {folder}")
-            quality_elem = root.find('quality')
+            quality_elem = root.find("quality")
             if quality_elem is not None:
                 quality = quality_elem.text.strip()
                 index = self.dependent_quality_combo.findText(quality)
                 if index != -1:
                     self.dependent_quality_combo.setCurrentIndex(index)
-            format_elem = root.find('format_preset')
+            format_elem = root.find("format_preset")
             if format_elem is not None:
                 fmt = format_elem.text.strip()
                 index = self.format_combo.findText(fmt)
                 if index != -1:
                     self.format_combo.setCurrentIndex(index)
-            encoder_elem = root.find('encoder')
+            encoder_elem = root.find("encoder")
             if encoder_elem is not None:
                 enc = encoder_elem.text.strip()
                 idx = self.encoder_combo.findText(enc)
                 if idx != -1:
                     self.encoder_combo.setCurrentIndex(idx)
-            volume_elem = root.find('volume_boost')
+            volume_elem = root.find("volume_boost")
             if volume_elem is not None:
                 try:
                     self.volume_spin.setValue(int(volume_elem.text.strip()))
                 except ValueError:
                     pass
-            index_elem = root.find('next_index')
+            index_elem = root.find("next_index")
             if index_elem is not None:
                 try:
                     self.next_index = int(index_elem.text.strip())
@@ -568,71 +760,83 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Error", f"Error loading state: {str(e)}")
 
     def export_state(self):
-        file_path, _ = QFileDialog.getSaveFileName(self, "Exportar lista", "", "XML Files (*.xml)")
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Exportar lista", "", "XML Files (*.xml)"
+        )
         if file_path:
             adjusted_index = None
             if self.conversion_thread and self.conversion_thread.isRunning():
                 adjusted_index = max(self.next_index - 1, 0)
             self.save_state_to_file(file_path, adjusted_next_index=adjusted_index)
-            QMessageBox.information(self, "Exportar lista", "Lista exportada correctamente.")
+            QMessageBox.information(
+                self, "Exportar lista", "Lista exportada correctamente."
+            )
 
     def import_state(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Cargar lista", "", "All Files (*.xml)")
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Cargar lista", "", "All Files (*.xml)"
+        )
         if file_path:
             self.load_state_from_file(file_path)
-            QMessageBox.information(self, "Cargar lista", "Lista cargada correctamente.")
+            QMessageBox.information(
+                self, "Cargar lista", "Lista cargada correctamente."
+            )
 
     def load_last_state(self):
-        state_file = os.path.join(os.path.dirname(__file__), 'last_state.xml')
+        state_file = os.path.join(os.path.dirname(__file__), "last_state.xml")
         if os.path.exists(state_file):
             try:
                 tree = ET.parse(state_file)
                 root = tree.getroot()
                 # Load videos
                 self.list_widget.setRowCount(0)
-                videos = root.find('videos')
+                videos = root.find("videos")
                 if videos is not None:
-                    for video in videos.findall('video'):
+                    for video in videos.findall("video"):
                         file_path = video.text.strip()
-                        if file_path and os.path.exists(file_path) and is_video_file(file_path):
+                        if (
+                            file_path
+                            and os.path.exists(file_path)
+                            and is_video_file(file_path)
+                        ):
                             self.list_widget.add_file(file_path)
                 # Load output folder
-                out_elem = root.find('output_folder')
+                out_elem = root.find("output_folder")
                 if out_elem is not None:
                     folder = out_elem.text.strip()
                     if folder and os.path.isdir(folder):
                         self.output_folder = folder
                         self.lbl_status.setText(f"Carpeta de salida: {folder}")
                 # Load quality
-                quality_elem = root.find('quality')
+                quality_elem = root.find("quality")
                 if quality_elem is not None:
                     quality = quality_elem.text.strip()
                     index = self.dependent_quality_combo.findText(quality)
                     if index != -1:
                         self.dependent_quality_combo.setCurrentIndex(index)
                 # Load format preset
-                format_elem = root.find('format_preset')
+                format_elem = root.find("format_preset")
                 if format_elem is not None:
                     fmt = format_elem.text.strip()
                     index = self.format_combo.findText(fmt)
                     if index != -1:
                         self.format_combo.setCurrentIndex(index)
                 # Load encoder
-                encoder_elem = root.find('encoder')
+                encoder_elem = root.find("encoder")
                 if encoder_elem is not None:
                     enc = encoder_elem.text.strip()
                     idx = self.encoder_combo.findText(enc)
                     if idx != -1:
                         self.encoder_combo.setCurrentIndex(idx)
                 # Load volume boost
-                volume_elem = root.find('volume_boost')
+                volume_elem = root.find("volume_boost")
                 if volume_elem is not None:
                     try:
                         self.volume_spin.setValue(int(volume_elem.text.strip()))
                     except ValueError:
                         pass
                 # Load next index and select that row
-                index_elem = root.find('next_index')
+                index_elem = root.find("next_index")
                 if index_elem is not None:
                     try:
                         self.next_index = int(index_elem.text.strip())
@@ -644,7 +848,9 @@ class MainWindow(QMainWindow):
                 pass
 
     def select_input_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "Seleccionar carpeta de entrada")
+        folder = QFileDialog.getExistingDirectory(
+            self, "Seleccionar carpeta de entrada"
+        )
         if folder:
             # Disable table and show loading indicator
             self.list_widget.setEnabled(False)
@@ -662,8 +868,11 @@ class MainWindow(QMainWindow):
                 if is_video_file(file_path):
                     video_files.append(file_path)
 
-        existing_files = [self.list_widget.item(row, 0).data(Qt.UserRole) for row in range(self.list_widget.rowCount())
-                          if self.list_widget.item(row, 0) is not None]
+        existing_files = [
+            self.list_widget.item(row, 0).data(Qt.UserRole)
+            for row in range(self.list_widget.rowCount())
+            if self.list_widget.item(row, 0) is not None
+        ]
         for file in video_files:
             if file not in existing_files:
                 self.list_widget.add_file(file)
@@ -675,16 +884,42 @@ class MainWindow(QMainWindow):
             self.output_folder = folder
             self.lbl_status.setText(f"Carpeta de salida: {folder}")
 
+    def open_output_folder(self):
+        if self.output_folder and os.path.isdir(self.output_folder):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(self.output_folder))
+        else:
+            QMessageBox.warning(
+                self, "Aviso", "No se ha seleccionado una carpeta de salida"
+            )
+
+    def add_individual_files(self):
+        extensions = " ".join(f"*{ext}" for ext in VIDEO_EXTENSIONS)
+        files, _ = QFileDialog.getOpenFileNames(
+            self, "Agregar archivos", "", f"Video/Audio Files ({extensions})"
+        )
+        existing = [
+            self.list_widget.item(r, 0).data(Qt.UserRole)
+            for r in range(self.list_widget.rowCount())
+            if self.list_widget.item(r, 0)
+        ]
+        for path in files:
+            if is_video_file(path) and path not in existing:
+                self.list_widget.add_file(path)
+                existing.append(path)
+                QApplication.processEvents()
+
     def toggle_conversion(self):
         if self.conversion_thread and self.conversion_thread.isRunning():
             self.conversion_thread.stop()
             self.progress_bar.setValue(0)
             self.file_progress_bar.setValue(0)
             self.progress_bar.setValue(0)
+            self.current_file_progress = 0
             self.btn_start.setText("Iniciar conversión")
             self.btn_start.setStyleSheet("background-color: green; color: white;")
             self.btn_input_folder.setEnabled(True)
             self.btn_output_folder.setEnabled(True)
+            self.btn_add_files.setEnabled(True)
             self.dependent_quality_combo.setEnabled(True)
             self.format_combo.setEnabled(True)
             self.encoder_combo.setEnabled(True)
@@ -700,26 +935,34 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "Error", "Agrega archivos para convertir")
                 return
 
-            files = [self.list_widget.item(row, 0).data(Qt.UserRole) for row in range(self.list_widget.rowCount())
-                     if self.list_widget.item(row, 0) is not None]
+            files = [
+                self.list_widget.item(row, 0).data(Qt.UserRole)
+                for row in range(self.list_widget.rowCount())
+                if self.list_widget.item(row, 0) is not None
+            ]
+            self.total_files = len(files)
             self.conversion_thread = ConversionThread(
                 files,
                 self.output_folder,
                 self.format_combo.currentText(),
                 self.dependent_quality_combo.currentText(),
                 self.encoder_combo.currentText(),
-                volume_boost=self.volume_spin.value()
+                volume_boost=self.volume_spin.value(),
             )
 
             self.conversion_thread.progress_updated.connect(self.update_progress)
-            self.conversion_thread.file_progress_updated.connect(self.update_file_progress)
+            self.conversion_thread.file_progress_updated.connect(
+                self.update_file_progress
+            )
             self.conversion_thread.error_occurred.connect(self.show_error)
             self.conversion_thread.finished.connect(self.conversion_finished)
+            self.conversion_thread.warning_signal.connect(self.show_warning)
 
             self.btn_start.setText("Detener conversión")
             self.btn_start.setStyleSheet("background-color: yellow; color: black;")
             self.btn_input_folder.setEnabled(False)
             self.btn_output_folder.setEnabled(False)
+            self.btn_add_files.setEnabled(False)
             self.dependent_quality_combo.setEnabled(False)
             self.format_combo.setEnabled(False)
             self.encoder_combo.setEnabled(False)
@@ -728,15 +971,37 @@ class MainWindow(QMainWindow):
             self.btn_import.setEnabled(False)
             self.progress_bar.setValue(0)
             self.file_progress_bar.setValue(0)
+            self.current_file_progress = 0
             self.conversion_thread.start()
 
     def update_progress(self, current_file, progress):
         self.lbl_status.setText(f"Procesando: {os.path.basename(current_file)}")
-        self.progress_bar.setValue(progress)
+        if "completed" in current_file.lower() or "cancelled" in current_file.lower():
+            self.progress_bar.setValue(
+                100 if "completed" in current_file.lower() else 0
+            )
 
     def update_file_progress(self, current_file, progress):
         self.file_progress_bar.setValue(progress)
-        # Update next_index if file conversion completes
+        self.current_file_progress = progress
+
+        completed_files = 0
+        current_file_index = 0
+        for row in range(self.list_widget.rowCount()):
+            item = self.list_widget.item(row, 0)
+            if item and item.data(Qt.UserRole) == current_file:
+                current_file_index = row
+                break
+
+        completed_files = current_file_index
+        if progress == 100:
+            completed_files = current_file_index + 1
+
+        global_progress = int(
+            ((completed_files + (progress / 100)) / self.total_files) * 100
+        )
+        self.progress_bar.setValue(global_progress)
+
         if progress == 100:
             for row in range(self.list_widget.rowCount()):
                 item = self.list_widget.item(row, 0)
@@ -751,12 +1016,16 @@ class MainWindow(QMainWindow):
     def show_error(self, message):
         QMessageBox.critical(self, "Error", message)
 
+    def show_warning(self, message):
+        self.lbl_status.setText(f"Aviso: {message}")
+
     def conversion_finished(self):
         self.btn_start.setText("Iniciar conversión")
         self.btn_start.setStyleSheet("background-color: green; color: white;")
         self.lbl_status.setText("Estado: Conversión completada")
         self.btn_input_folder.setEnabled(True)
         self.btn_output_folder.setEnabled(True)
+        self.btn_add_files.setEnabled(True)
         self.dependent_quality_combo.setEnabled(True)
         self.format_combo.setEnabled(True)
         self.encoder_combo.setEnabled(True)
@@ -767,8 +1036,13 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         # Show confirmation dialog on exit
-        reply = QMessageBox.question(self, "Confirmar salida", "¿Estás seguro de cerrar el programa?",
-                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        reply = QMessageBox.question(
+            self,
+            "Confirmar salida",
+            "¿Estás seguro de cerrar el programa?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
         if reply == QMessageBox.Yes:
             # If a conversion is in progress, stop it before closing
             if self.conversion_thread and self.conversion_thread.isRunning():
@@ -794,8 +1068,8 @@ class MainWindow(QMainWindow):
             index_elem = ET.SubElement(root, "next_index")
             index_elem.text = str(self.next_index)
             tree = ET.ElementTree(root)
-            state_file = os.path.join(os.path.dirname(__file__), 'last_state.xml')
-            tree.write(state_file, encoding='utf-8', xml_declaration=True)
+            state_file = os.path.join(os.path.dirname(__file__), "last_state.xml")
+            tree.write(state_file, encoding="utf-8", xml_declaration=True)
             event.accept()
         else:
             event.ignore()
@@ -807,6 +1081,7 @@ class MainWindow(QMainWindow):
         cp = QApplication.desktop().availableGeometry().center()
         qr.moveCenter(cp)
         self.move(qr.topLeft())
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
