@@ -4,7 +4,7 @@ import subprocess
 import xml.etree.ElementTree as ET
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QTableWidget, QTableWidgetItem, QPushButton, QComboBox, QProgressBar, QLabel,
-                             QFileDialog, QMessageBox)
+                             QFileDialog, QMessageBox, QSpinBox)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 import ffmpeg
 
