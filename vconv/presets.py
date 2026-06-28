@@ -14,29 +14,6 @@ class ConversionPreset:
     }
 
     _preset_data = {
-        "MP4 (H.264)": {
-            "preset_quality": {"Baja": "28", "Media": "23", "Alta": "18"},
-            "container": ".mp4",
-            "vcodec": "libx264",
-            "ffmpeg_preset": "fast",
-        },
-        "MP4 (H.265)": {
-            "preset_quality": {"Baja": "30", "Media": "25", "Alta": "20"},
-            "container": ".mp4",
-            "vcodec": "libx265",
-            "ffmpeg_preset": "fast",
-        },
-        "MKV (H.264)": {
-            "preset_quality": {"Baja": "28", "Media": "23", "Alta": "18"},
-            "container": ".mkv",
-            "vcodec": "libx264",
-            "ffmpeg_preset": "fast",
-        },
-        "MP3 (Audio)": {
-            "preset_quality": {"Baja": "128k", "Media": "192k", "Alta": "320k"},
-            "container": ".mp3",
-            "vcodec": None,
-        },
         "TV Moderna USB (H.264)": {
             "preset_quality": {"Baja": "28", "Media": "26", "Alta": "22"},
             "container": ".mp4",
@@ -69,25 +46,32 @@ class ConversionPreset:
             "x264_level": "3.1",
             "audio_bitrate": "128k",
         },
+        "MP4 (H.264)": {
+            "preset_quality": {"Baja": "28", "Media": "23", "Alta": "18"},
+            "container": ".mp4",
+            "vcodec": "libx264",
+            "ffmpeg_preset": "fast",
+        },
+        "MP4 (H.265)": {
+            "preset_quality": {"Baja": "30", "Media": "25", "Alta": "20"},
+            "container": ".mp4",
+            "vcodec": "libx265",
+            "ffmpeg_preset": "fast",
+        },
+        "MKV (H.264)": {
+            "preset_quality": {"Baja": "28", "Media": "23", "Alta": "18"},
+            "container": ".mkv",
+            "vcodec": "libx264",
+            "ffmpeg_preset": "fast",
+        },
+        "MP3 (Audio)": {
+            "preset_quality": {"Baja": "128k", "Media": "192k", "Alta": "320k"},
+            "container": ".mp3",
+            "vcodec": None,
+        },
     }
 
     _gpu_codec_map = {
-        "MP4 (H.264)": {
-            ENCODER_NVIDIA: "h264_nvenc",
-            ENCODER_INTEL: "h264_qsv",
-            ENCODER_AMD: "h264_amf",
-        },
-        "MP4 (H.265)": {
-            ENCODER_NVIDIA: "hevc_nvenc",
-            ENCODER_INTEL: "hevc_qsv",
-            ENCODER_AMD: "hevc_amf",
-        },
-        "MKV (H.264)": {
-            ENCODER_NVIDIA: "h264_nvenc",
-            ENCODER_INTEL: "h264_qsv",
-            ENCODER_AMD: "h264_amf",
-        },
-        "MP3 (Audio)": {},
         "TV Moderna USB (H.264)": {
             ENCODER_NVIDIA: "h264_nvenc",
             ENCODER_INTEL: "h264_qsv",
@@ -104,6 +88,22 @@ class ConversionPreset:
             ENCODER_INTEL: "h264_qsv",
             ENCODER_AMD: "h264_amf",
         },
+        "MP4 (H.264)": {
+            ENCODER_NVIDIA: "h264_nvenc",
+            ENCODER_INTEL: "h264_qsv",
+            ENCODER_AMD: "h264_amf",
+        },
+        "MP4 (H.265)": {
+            ENCODER_NVIDIA: "hevc_nvenc",
+            ENCODER_INTEL: "hevc_qsv",
+            ENCODER_AMD: "hevc_amf",
+        },
+        "MKV (H.264)": {
+            ENCODER_NVIDIA: "h264_nvenc",
+            ENCODER_INTEL: "h264_qsv",
+            ENCODER_AMD: "h264_amf",
+        },
+        "MP3 (Audio)": {},
     }
 
     def __init__(self, format_preset: str, quality: str):
