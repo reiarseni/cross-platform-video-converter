@@ -1,0 +1,2 @@
+<?xml version='1.0' encoding='utf-8'?>
+<app_state><videos><video>/tmp/existing_video.mp4</video><video>/tmp/nonexistent_video.mp4</video></videos><output_folder>/tmp</output_folder><quality>Baja</quality><format_preset>MP4 (H.264)</format_preset><encoder>Auto</encoder><volume_boost>150</volume_boost><next_index>1</next_index></app_state>
