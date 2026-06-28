@@ -173,6 +173,9 @@ class MainWindow(QMainWindow):
         quality_layout.addWidget(self.volume_spin)
         quality_layout.addWidget(self.btn_start)
 
+        self.lbl_preset_desc = QLabel("")
+        self.lbl_preset_desc.setStyleSheet("color: gray; font-style: italic;")
+
         layout = QVBoxLayout()
         layout.addWidget(QLabel("Archivos a convertir:"))
         layout.addWidget(self.list_widget)
@@ -184,6 +187,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(folder_buttons_layout)
 
         layout.addLayout(quality_layout)
+        layout.addWidget(self.lbl_preset_desc)
 
         state_buttons_layout = QHBoxLayout()
         state_buttons_layout.addWidget(self.btn_export)
@@ -207,6 +211,11 @@ class MainWindow(QMainWindow):
         self.btn_export.clicked.connect(self.export_state)
         self.btn_import.clicked.connect(self.import_state)
         self.btn_open_output.clicked.connect(self.open_output_folder)
+        self.format_combo.currentTextChanged.connect(self._update_preset_desc)
+        self._update_preset_desc(self.format_combo.currentText())
+
+    def _update_preset_desc(self, preset_name: str):
+        self.lbl_preset_desc.setText(ConversionPreset.get_preset_description(preset_name))
 
     # ------------------------------------------------------------------
     # State mappers

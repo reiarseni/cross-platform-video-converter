@@ -23,12 +23,6 @@ class TestPresetProperties:
         assert p.get_video_codec() == "libx265"
         assert p.get_crf() == "20"
 
-    def test_avi_mpeg4(self):
-        p = ConversionPreset("AVI (MPEG-4)", "Baja")
-        assert p.get_video_codec() == "mpeg4"
-        assert p.get_container_extension() == ".avi"
-        assert p.get_crf() == "32"
-
     def test_mkv_h264(self):
         p = ConversionPreset("MKV (H.264)", "Media")
         assert p.get_container_extension() == ".mkv"
@@ -67,15 +61,18 @@ class TestAvailablePresets:
         presets = ConversionPreset.get_available_presets()
         assert "TV Moderna USB (H.264)" in presets
         assert "TV Antigua (Xvid AVI)" in presets
+        assert "TV Express (H.264)" in presets
         assert "Móvil/Tablet (H.264)" in presets
 
     def test_existing_presets_still_present(self):
         presets = ConversionPreset.get_available_presets()
         assert "MP4 (H.264)" in presets
         assert "MP4 (H.265)" in presets
-        assert "AVI (MPEG-4)" in presets
         assert "MKV (H.264)" in presets
         assert "MP3 (Audio)" in presets
+
+    def test_avi_mpeg4_removed(self):
+        assert "AVI (MPEG-4)" not in ConversionPreset.get_available_presets()
 
 
 # ---------------------------------------------------------------------------
@@ -100,9 +97,6 @@ class TestGetFfmpegPreset:
 
     def test_tv_antigua_xvid_returns_none(self):
         assert ConversionPreset("TV Antigua (Xvid AVI)", "Media").get_ffmpeg_preset() is None
-
-    def test_avi_mpeg4_existing_returns_none(self):
-        assert ConversionPreset("AVI (MPEG-4)", "Media").get_ffmpeg_preset() is None
 
     def test_mp3_audio_only_returns_none(self):
         assert ConversionPreset("MP3 (Audio)", "Media").get_ffmpeg_preset() is None
@@ -193,7 +187,7 @@ class TestResolveEncoder:
         assert codec == "libx264"
 
     def test_specific_gpu_unsupported_by_preset_falls_back_to_cpu(self):
-        p = ConversionPreset("AVI (MPEG-4)", "Media")
+        p = ConversionPreset("TV Antigua (Xvid AVI)", "Media")
         enc, codec = p.resolve_encoder(ENCODER_NVIDIA, available_encoders=ALL_ENCODERS)
         assert enc == ENCODER_CPU
         assert codec == "mpeg4"

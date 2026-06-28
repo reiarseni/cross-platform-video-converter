@@ -2,6 +2,17 @@ from vconv.config import ENCODER_AUTO, ENCODER_CPU, ENCODER_NVIDIA, ENCODER_INTE
 
 
 class ConversionPreset:
+    _descriptions = {
+        "MP4 (H.264)":          "Uso general — PC, Smart TV, móvil, YouTube. Máxima compatibilidad.",
+        "MP4 (H.265)":          "Archivos más pequeños que H.264 a igual calidad. Requiere dispositivo post-2015.",
+        "MKV (H.264)":          "Como MP4 H.264 pero en contenedor MKV. Ideal para subtítulos o múltiples pistas de audio.",
+        "MP3 (Audio)":          "Extrae o convierte el audio a MP3. Sin video.",
+        "TV Moderna USB (H.264)": "Para TVs LCD/LED con puerto USB (post-2009). Perfil Baseline garantiza reproducción en casi cualquier TV.",
+        "TV Express (H.264)":     "Conversión casi en tiempo real. Calidad reducida pero aceptable en TV a distancia normal. El más rápido.",
+        "TV Antigua (Xvid AVI)":  "Para reproductores de DVD chinos, TVs muy viejos o dispositivos que solo leen Xvid/AVI con audio MP3.",
+        "Móvil/Tablet (H.264)": "Archivos pequeños y conversión rápida para teléfono o tablet. Sacrifica algo de calidad a cambio de velocidad.",
+    }
+
     _preset_data = {
         "MP4 (H.264)": {
             "preset_quality": {"Baja": "28", "Media": "23", "Alta": "18"},
@@ -14,11 +25,6 @@ class ConversionPreset:
             "container": ".mp4",
             "vcodec": "libx265",
             "ffmpeg_preset": "fast",
-        },
-        "AVI (MPEG-4)": {
-            "preset_quality": {"Baja": "32", "Media": "27", "Alta": "22"},
-            "container": ".avi",
-            "vcodec": "mpeg4",
         },
         "MKV (H.264)": {
             "preset_quality": {"Baja": "28", "Media": "23", "Alta": "18"},
@@ -36,6 +42,14 @@ class ConversionPreset:
             "container": ".mp4",
             "vcodec": "libx264",
             "ffmpeg_preset": "fast",
+            "x264_profile": "baseline",
+            "x264_level": "3.1",
+        },
+        "TV Express (H.264)": {
+            "preset_quality": {"Baja": "30", "Media": "26", "Alta": "22"},
+            "container": ".mp4",
+            "vcodec": "libx264",
+            "ffmpeg_preset": "ultrafast",
             "x264_profile": "baseline",
             "x264_level": "3.1",
         },
@@ -68,7 +82,6 @@ class ConversionPreset:
             ENCODER_INTEL: "hevc_qsv",
             ENCODER_AMD: "hevc_amf",
         },
-        "AVI (MPEG-4)": {},
         "MKV (H.264)": {
             ENCODER_NVIDIA: "h264_nvenc",
             ENCODER_INTEL: "h264_qsv",
@@ -76,6 +89,11 @@ class ConversionPreset:
         },
         "MP3 (Audio)": {},
         "TV Moderna USB (H.264)": {
+            ENCODER_NVIDIA: "h264_nvenc",
+            ENCODER_INTEL: "h264_qsv",
+            ENCODER_AMD: "h264_amf",
+        },
+        "TV Express (H.264)": {
             ENCODER_NVIDIA: "h264_nvenc",
             ENCODER_INTEL: "h264_qsv",
             ENCODER_AMD: "h264_amf",
@@ -95,6 +113,10 @@ class ConversionPreset:
     @classmethod
     def get_available_presets(cls):
         return list(cls._preset_data.keys())
+
+    @classmethod
+    def get_preset_description(cls, format_preset: str) -> str:
+        return cls._descriptions.get(format_preset, "")
 
     @classmethod
     def get_available_qualities(cls):
