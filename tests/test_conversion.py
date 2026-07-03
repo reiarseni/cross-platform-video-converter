@@ -116,6 +116,8 @@ class TestBuildOutputKwargs:
         kwargs = build_output_kwargs(p, ENCODER_CPU, "libx264", volume_boost=0)
         assert kwargs["profile:v"] == "baseline"
         assert kwargs["level"] == "3.1"
+        # baseline requires 8-bit 4:2:0; must force yuv420p so 10-bit sources work
+        assert kwargs["pix_fmt"] == "yuv420p"
 
     def test_tv_moderna_usb_crf_values(self):
         assert build_output_kwargs(preset("TV Moderna USB (H.264)", "Alta"), ENCODER_CPU, "libx264", volume_boost=0)["crf"] == "22"

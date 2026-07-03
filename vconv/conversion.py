@@ -60,6 +60,11 @@ def build_output_kwargs(preset: ConversionPreset, resolved_encoder: str, codec, 
             level = preset.get_x264_level()
             if profile:
                 base["profile:v"] = profile
+                # Compatibility profiles (e.g. baseline) require 8-bit 4:2:0.
+                # Force yuv420p so 10-bit HEVC sources don't fail encoder init
+                # ("baseline profile doesn't support a bit depth of 10") and
+                # so old TVs/phones can actually decode the output.
+                base["pix_fmt"] = "yuv420p"
             if level:
                 base["level"] = level
         else:
