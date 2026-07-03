@@ -170,3 +170,6 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 last_state.xml
+ffmpeg_bins/
+openspec/
+/.claude
