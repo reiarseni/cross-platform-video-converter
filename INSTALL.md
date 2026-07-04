@@ -57,3 +57,52 @@ sudo apt install python3-venv curl
 # Verificar que FFmpeg está embebido
 strings dist/VideoConverter | grep -c ffmpeg
 ```
+
+---
+
+## Instalar como paquete .deb (Ubuntu 24.04+)
+
+Genera un `.deb` que instala la app en `/opt/videoconverter/` con acceso directo en el menú de aplicaciones.
+
+### Generar el .deb
+
+```bash
+./build-deb.sh
+```
+
+Salida: `dist/videoconverter_1.0.0_amd64.deb`
+
+> `build-deb.sh` ejecuta `build.sh` automáticamente si el binario no existe.
+
+### Instalar
+
+```bash
+sudo dpkg -i dist/videoconverter_1.0.0_amd64.deb
+# Si faltan dependencias:
+sudo apt -f install
+```
+
+### Ejecutar
+
+```bash
+videoconverter
+```
+
+También aparece en el menú de aplicaciones como "VideoConverter".
+
+### Desinstalar
+
+```bash
+sudo dpkg -r videoconverter
+```
+
+### Estructura instalada
+
+```
+/opt/videoconverter/
+  VideoConverter          ← binario ejecutable
+  assets/icon.png         ← icono de la app
+/usr/bin/videoconverter   → symlink al binario
+/usr/share/applications/videoconverter.desktop
+/usr/share/icons/hicolor/256x256/apps/videoconverter.png
+```
