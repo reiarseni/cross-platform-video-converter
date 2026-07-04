@@ -12,23 +12,23 @@ NO_GPU = [ENCODER_AUTO, ENCODER_CPU]
 
 class TestPresetProperties:
     def test_mp4_h264_codec(self):
-        p = ConversionPreset("MP4 (H.264)", "Media")
+        p = ConversionPreset("General PC (H.264)", "Media")
         assert p.get_video_codec() == "libx264"
         assert p.get_container_extension() == ".mp4"
         assert p.get_crf() == "23"
         assert not p.is_audio_only()
 
     def test_mp4_h265_codec(self):
-        p = ConversionPreset("MP4 (H.265)", "Alta")
+        p = ConversionPreset("Calidad compacta (H.265)", "Alta")
         assert p.get_video_codec() == "libx265"
         assert p.get_crf() == "20"
 
     def test_mkv_h264(self):
-        p = ConversionPreset("MKV (H.264)", "Media")
+        p = ConversionPreset("Múltiples pistas (H.264)", "Media")
         assert p.get_container_extension() == ".mkv"
 
     def test_mp3_audio_only(self):
-        p = ConversionPreset("MP3 (Audio)", "Media")
+        p = ConversionPreset("Solo audio (MP3)", "Media")
         assert p.is_audio_only()
         assert p.get_crf() == "192k"
         assert p.get_container_extension() == ".mp3"
@@ -66,10 +66,10 @@ class TestAvailablePresets:
 
     def test_existing_presets_still_present(self):
         presets = ConversionPreset.get_available_presets()
-        assert "MP4 (H.264)" in presets
-        assert "MP4 (H.265)" in presets
-        assert "MKV (H.264)" in presets
-        assert "MP3 (Audio)" in presets
+        assert "General PC (H.264)" in presets
+        assert "Calidad compacta (H.265)" in presets
+        assert "Múltiples pistas (H.264)" in presets
+        assert "Solo audio (MP3)" in presets
 
     def test_avi_mpeg4_removed(self):
         assert "AVI (MPEG-4)" not in ConversionPreset.get_available_presets()
@@ -81,13 +81,13 @@ class TestAvailablePresets:
 
 class TestGetFfmpegPreset:
     def test_mp4_h264_returns_fast(self):
-        assert ConversionPreset("MP4 (H.264)", "Media").get_ffmpeg_preset() == "fast"
+        assert ConversionPreset("General PC (H.264)", "Media").get_ffmpeg_preset() == "fast"
 
     def test_mp4_h265_returns_fast(self):
-        assert ConversionPreset("MP4 (H.265)", "Media").get_ffmpeg_preset() == "fast"
+        assert ConversionPreset("Calidad compacta (H.265)", "Media").get_ffmpeg_preset() == "fast"
 
     def test_mkv_h264_returns_fast(self):
-        assert ConversionPreset("MKV (H.264)", "Media").get_ffmpeg_preset() == "fast"
+        assert ConversionPreset("Múltiples pistas (H.264)", "Media").get_ffmpeg_preset() == "fast"
 
     def test_tv_moderna_usb_returns_fast(self):
         assert ConversionPreset("TV Moderna USB (H.264)", "Media").get_ffmpeg_preset() == "fast"
@@ -99,7 +99,7 @@ class TestGetFfmpegPreset:
         assert ConversionPreset("TV Antigua (Xvid AVI)", "Media").get_ffmpeg_preset() is None
 
     def test_mp3_audio_only_returns_none(self):
-        assert ConversionPreset("MP3 (Audio)", "Media").get_ffmpeg_preset() is None
+        assert ConversionPreset("Solo audio (MP3)", "Media").get_ffmpeg_preset() is None
 
 
 # ---------------------------------------------------------------------------
@@ -118,12 +118,12 @@ class TestX264Profile:
         assert p.get_x264_level() == "3.1"
 
     def test_mp4_h264_no_profile(self):
-        p = ConversionPreset("MP4 (H.264)", "Media")
+        p = ConversionPreset("General PC (H.264)", "Media")
         assert p.get_x264_profile() is None
         assert p.get_x264_level() is None
 
     def test_mkv_h264_no_profile(self):
-        p = ConversionPreset("MKV (H.264)", "Media")
+        p = ConversionPreset("Múltiples pistas (H.264)", "Media")
         assert p.get_x264_profile() is None
 
 
@@ -139,7 +139,7 @@ class TestGetAudioBitrate:
         assert ConversionPreset("TV Moderna USB (H.264)", "Media").get_audio_bitrate() == "192k"
 
     def test_mp4_h264_default_192k(self):
-        assert ConversionPreset("MP4 (H.264)", "Media").get_audio_bitrate() == "192k"
+        assert ConversionPreset("General PC (H.264)", "Media").get_audio_bitrate() == "192k"
 
     def test_tv_antigua_default_192k(self):
         assert ConversionPreset("TV Antigua (Xvid AVI)", "Media").get_audio_bitrate() == "192k"
@@ -154,7 +154,7 @@ class TestGetAudioCodec:
         assert ConversionPreset("TV Antigua (Xvid AVI)", "Media").get_audio_codec() == "libmp3lame"
 
     def test_mp4_h264_aac(self):
-        assert ConversionPreset("MP4 (H.264)", "Media").get_audio_codec() == "aac"
+        assert ConversionPreset("General PC (H.264)", "Media").get_audio_codec() == "aac"
 
     def test_tv_moderna_usb_aac(self):
         assert ConversionPreset("TV Moderna USB (H.264)", "Media").get_audio_codec() == "aac"
@@ -169,19 +169,19 @@ class TestGetAudioCodec:
 
 class TestResolveEncoder:
     def test_cpu_encoder(self):
-        p = ConversionPreset("MP4 (H.264)", "Media")
+        p = ConversionPreset("General PC (H.264)", "Media")
         enc, codec = p.resolve_encoder(ENCODER_CPU, available_encoders=ALL_ENCODERS)
         assert enc == ENCODER_CPU
         assert codec == "libx264"
 
     def test_auto_picks_nvidia_when_available(self):
-        p = ConversionPreset("MP4 (H.264)", "Media")
+        p = ConversionPreset("General PC (H.264)", "Media")
         enc, codec = p.resolve_encoder(ENCODER_AUTO, available_encoders=[ENCODER_AUTO, ENCODER_CPU, ENCODER_NVIDIA])
         assert enc == ENCODER_NVIDIA
         assert codec == "h264_nvenc"
 
     def test_auto_falls_back_to_cpu_when_no_gpu(self):
-        p = ConversionPreset("MP4 (H.264)", "Media")
+        p = ConversionPreset("General PC (H.264)", "Media")
         enc, codec = p.resolve_encoder(ENCODER_AUTO, available_encoders=NO_GPU)
         assert enc == ENCODER_CPU
         assert codec == "libx264"
@@ -193,19 +193,19 @@ class TestResolveEncoder:
         assert codec == "mpeg4"
 
     def test_audio_only_ignores_gpu(self):
-        p = ConversionPreset("MP3 (Audio)", "Media")
+        p = ConversionPreset("Solo audio (MP3)", "Media")
         enc, codec = p.resolve_encoder(ENCODER_NVIDIA, available_encoders=ALL_ENCODERS)
         assert enc == ENCODER_CPU
         assert codec is None
 
     def test_auto_tries_intel_when_only_intel_available(self):
-        p = ConversionPreset("MP4 (H.265)", "Media")
+        p = ConversionPreset("Calidad compacta (H.265)", "Media")
         enc, codec = p.resolve_encoder(ENCODER_AUTO, available_encoders=[ENCODER_AUTO, ENCODER_CPU, ENCODER_INTEL])
         assert enc == ENCODER_INTEL
         assert codec == "hevc_qsv"
 
     def test_specific_amd_encoder(self):
-        p = ConversionPreset("MKV (H.264)", "Media")
+        p = ConversionPreset("Múltiples pistas (H.264)", "Media")
         enc, codec = p.resolve_encoder(ENCODER_AMD, available_encoders=ALL_ENCODERS)
         assert enc == ENCODER_AMD
         assert codec == "h264_amf"

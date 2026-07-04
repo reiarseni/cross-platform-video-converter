@@ -3,10 +3,10 @@ from vconv.config import ENCODER_AUTO, ENCODER_CPU, ENCODER_NVIDIA, ENCODER_INTE
 
 class ConversionPreset:
     _descriptions = {
-        "MP4 (H.264)":          "Uso general — PC, Smart TV, móvil, YouTube. Máxima compatibilidad.",
-        "MP4 (H.265)":          "Archivos más pequeños que H.264 a igual calidad. Requiere dispositivo post-2015.",
-        "MKV (H.264)":          "Como MP4 H.264 pero en contenedor MKV. Ideal para subtítulos o múltiples pistas de audio.",
-        "MP3 (Audio)":          "Extrae o convierte el audio a MP3. Sin video.",
+        "General PC (H.264)":          "Uso general — PC, Smart TV, móvil, YouTube. Máxima compatibilidad.",
+        "Calidad compacta (H.265)":          "Archivos más pequeños que H.264 a igual calidad. Requiere dispositivo post-2015.",
+        "Múltiples pistas (H.264)":          "Como H.264 general pero en contenedor MKV. Ideal para subtítulos o múltiples pistas de audio.",
+        "Solo audio (MP3)":          "Extrae o convierte el audio a MP3. Sin video.",
         "TV Moderna USB (H.264)": "Para TVs LCD/LED con puerto USB (post-2009). Perfil Baseline garantiza reproducción en casi cualquier TV.",
         "TV Express (H.264)":     "Conversión casi en tiempo real. Calidad reducida pero aceptable en TV a distancia normal. El más rápido.",
         "TV Antigua (Xvid AVI)":  "Para reproductores de DVD chinos, TVs muy viejos o dispositivos que solo leen Xvid/AVI con audio MP3.",
@@ -46,25 +46,25 @@ class ConversionPreset:
             "x264_level": "3.1",
             "audio_bitrate": "128k",
         },
-        "MP4 (H.264)": {
+        "General PC (H.264)": {
             "preset_quality": {"Baja": "28", "Media": "23", "Alta": "18"},
             "container": ".mp4",
             "vcodec": "libx264",
             "ffmpeg_preset": "fast",
         },
-        "MP4 (H.265)": {
+        "Calidad compacta (H.265)": {
             "preset_quality": {"Baja": "30", "Media": "25", "Alta": "20"},
             "container": ".mp4",
             "vcodec": "libx265",
             "ffmpeg_preset": "fast",
         },
-        "MKV (H.264)": {
+        "Múltiples pistas (H.264)": {
             "preset_quality": {"Baja": "28", "Media": "23", "Alta": "18"},
             "container": ".mkv",
             "vcodec": "libx264",
             "ffmpeg_preset": "fast",
         },
-        "MP3 (Audio)": {
+        "Solo audio (MP3)": {
             "preset_quality": {"Baja": "128k", "Media": "192k", "Alta": "320k"},
             "container": ".mp3",
             "vcodec": None,
@@ -88,22 +88,22 @@ class ConversionPreset:
             ENCODER_INTEL: "h264_qsv",
             ENCODER_AMD: "h264_amf",
         },
-        "MP4 (H.264)": {
+        "General PC (H.264)": {
             ENCODER_NVIDIA: "h264_nvenc",
             ENCODER_INTEL: "h264_qsv",
             ENCODER_AMD: "h264_amf",
         },
-        "MP4 (H.265)": {
+        "Calidad compacta (H.265)": {
             ENCODER_NVIDIA: "hevc_nvenc",
             ENCODER_INTEL: "hevc_qsv",
             ENCODER_AMD: "hevc_amf",
         },
-        "MKV (H.264)": {
+        "Múltiples pistas (H.264)": {
             ENCODER_NVIDIA: "h264_nvenc",
             ENCODER_INTEL: "h264_qsv",
             ENCODER_AMD: "h264_amf",
         },
-        "MP3 (Audio)": {},
+        "Solo audio (MP3)": {},
     }
 
     def __init__(self, format_preset: str, quality: str):
@@ -120,8 +120,8 @@ class ConversionPreset:
 
     @classmethod
     def get_available_qualities(cls):
-        if "MP4 (H.264)" in cls._preset_data:
-            return list(cls._preset_data["MP4 (H.264)"]["preset_quality"].keys())
+        if "General PC (H.264)" in cls._preset_data:
+            return list(cls._preset_data["General PC (H.264)"]["preset_quality"].keys())
         first_key = next(iter(cls._preset_data))
         return list(cls._preset_data[first_key]["preset_quality"].keys())
 

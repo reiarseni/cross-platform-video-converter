@@ -14,7 +14,7 @@ def _is_video_file(path: str) -> bool:
 class AppState:
     files: List[str] = field(default_factory=list)
     output_folder: str = ""
-    format_preset: str = "MP4 (H.264)"
+    format_preset: str = "General PC (H.264)"
     quality: str = "Media"
     encoder: str = "Auto"
     volume_boost: int = 0

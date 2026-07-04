@@ -10,7 +10,7 @@ from vconv.conversion import (
 from vconv.config import ENCODER_AUTO, ENCODER_CPU, ENCODER_NVIDIA, ENCODER_INTEL, ENCODER_AMD
 
 
-def preset(fmt="MP4 (H.264)", quality="Media"):
+def preset(fmt="General PC (H.264)", quality="Media"):
     return ConversionPreset(fmt, quality)
 
 
@@ -39,7 +39,7 @@ class TestBuildOutputKwargs:
         assert "preset" in kwargs
 
     def test_intel_qsv(self):
-        p = preset("MP4 (H.265)", "Alta")
+        p = preset("Calidad compacta (H.265)", "Alta")
         kwargs = build_output_kwargs(p, ENCODER_INTEL, "hevc_qsv", volume_boost=0)
         assert kwargs["vcodec"] == "hevc_qsv"
         assert kwargs["global_quality"] == "20"
@@ -54,7 +54,7 @@ class TestBuildOutputKwargs:
         assert kwargs["qp_p"] == "23"
 
     def test_audio_only(self):
-        p = preset("MP3 (Audio)", "Alta")
+        p = preset("Solo audio (MP3)", "Alta")
         kwargs = build_output_kwargs(p, ENCODER_CPU, None, volume_boost=0)
         assert kwargs["acodec"] == "libmp3lame"
         assert kwargs["audio_bitrate"] == "320k"
@@ -70,7 +70,7 @@ class TestBuildOutputKwargs:
         assert "alimiter" in kwargs["af"]
 
     def test_volume_boost_on_audio_only(self):
-        p = preset("MP3 (Audio)", "Media")
+        p = preset("Solo audio (MP3)", "Media")
         kwargs = build_output_kwargs(p, ENCODER_CPU, None, volume_boost=150)
         assert "af" in kwargs
         assert "volume=1.5000" in kwargs["af"]
@@ -88,16 +88,16 @@ class TestBuildOutputKwargs:
     # --- existing presets no longer use "slow" ---
 
     def test_existing_h264_not_slow(self):
-        kwargs = build_output_kwargs(preset("MP4 (H.264)", "Media"), ENCODER_CPU, "libx264", volume_boost=0)
+        kwargs = build_output_kwargs(preset("General PC (H.264)", "Media"), ENCODER_CPU, "libx264", volume_boost=0)
         assert kwargs["preset"] == "fast"
         assert kwargs["preset"] != "slow"
 
     def test_existing_h265_not_slow(self):
-        kwargs = build_output_kwargs(preset("MP4 (H.265)", "Media"), ENCODER_CPU, "libx265", volume_boost=0)
+        kwargs = build_output_kwargs(preset("Calidad compacta (H.265)", "Media"), ENCODER_CPU, "libx265", volume_boost=0)
         assert kwargs["preset"] == "fast"
 
     def test_existing_mkv_h264_not_slow(self):
-        kwargs = build_output_kwargs(preset("MKV (H.264)", "Media"), ENCODER_CPU, "libx264", volume_boost=0)
+        kwargs = build_output_kwargs(preset("Múltiples pistas (H.264)", "Media"), ENCODER_CPU, "libx264", volume_boost=0)
         assert kwargs["preset"] == "fast"
 
     # --- TV Moderna USB (H.264) ---
@@ -178,7 +178,7 @@ class TestBuildOutputKwargs:
     # --- existing H.264 no tiene profile forzado ---
 
     def test_existing_mp4_h264_no_profile(self):
-        p = preset("MP4 (H.264)", "Media")
+        p = preset("General PC (H.264)", "Media")
         kwargs = build_output_kwargs(p, ENCODER_CPU, "libx264", volume_boost=0)
         assert "profile:v" not in kwargs
         assert "level" not in kwargs
@@ -227,7 +227,7 @@ class TestBuildOutputPath:
 # ---------------------------------------------------------------------------
 
 class TestNextEncoderAfterFailure:
-    def _p(self, fmt="MP4 (H.264)", quality="Media"):
+    def _p(self, fmt="General PC (H.264)", quality="Media"):
         return ConversionPreset(fmt, quality)
 
     def test_nvidia_falls_back_to_cpu(self):
@@ -235,11 +235,11 @@ class TestNextEncoderAfterFailure:
         assert result == (ENCODER_CPU, "libx264")
 
     def test_intel_falls_back_to_cpu(self):
-        result = next_encoder_after_failure(ENCODER_INTEL, self._p("MKV (H.264)"))
+        result = next_encoder_after_failure(ENCODER_INTEL, self._p("Múltiples pistas (H.264)"))
         assert result == (ENCODER_CPU, "libx264")
 
     def test_amd_falls_back_to_cpu(self):
-        result = next_encoder_after_failure(ENCODER_AMD, self._p("MP4 (H.265)"))
+        result = next_encoder_after_failure(ENCODER_AMD, self._p("Calidad compacta (H.265)"))
         assert result == (ENCODER_CPU, "libx265")
 
     def test_cpu_returns_none(self):
@@ -249,7 +249,7 @@ class TestNextEncoderAfterFailure:
         assert next_encoder_after_failure(ENCODER_AUTO, self._p()) is None
 
     def test_audio_only_returns_none(self):
-        assert next_encoder_after_failure(ENCODER_NVIDIA, self._p("MP3 (Audio)")) is None
+        assert next_encoder_after_failure(ENCODER_NVIDIA, self._p("Solo audio (MP3)")) is None
 
 
 # ---------------------------------------------------------------------------

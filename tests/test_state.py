@@ -14,7 +14,7 @@ class TestRoundTrip:
         original = AppState(
             files=["/fake/path/a.mp4", "/fake/path/b.mkv"],
             output_folder=str(tmp_path),
-            format_preset="MKV (H.264)",
+            format_preset="Múltiples pistas (H.264)",
             quality="Alta",
             encoder="NVIDIA (NVENC)",
             volume_boost=200,
@@ -24,7 +24,7 @@ class TestRoundTrip:
         # Files that don't exist are dropped by from_xml; we test the rest
         restored = from_xml(xml_bytes)
         assert restored.output_folder == str(tmp_path)
-        assert restored.format_preset == "MKV (H.264)"
+        assert restored.format_preset == "Múltiples pistas (H.264)"
         assert restored.quality == "Alta"
         assert restored.encoder == "NVIDIA (NVENC)"
         assert restored.volume_boost == 200
@@ -40,7 +40,7 @@ class TestRoundTrip:
         original = AppState(
             files=[str(fake_video)],
             output_folder=str(out_dir),
-            format_preset="MP4 (H.264)",
+            format_preset="General PC (H.264)",
             quality="Media",
             encoder="Auto",
             volume_boost=0,
@@ -101,7 +101,7 @@ class TestMissingFieldDefaults:
         state = from_xml(MINIMAL_XML)
         assert state.files == []
         assert state.output_folder == ""
-        assert state.format_preset == "MP4 (H.264)"
+        assert state.format_preset == "General PC (H.264)"
         assert state.quality == "Media"
         assert state.encoder == "Auto"
         assert state.volume_boost == 0
@@ -138,7 +138,7 @@ class TestGoldenFile:
             assert "/tmp/nonexistent_video.mp4" not in state.files
             assert state.output_folder == "/tmp"
             assert state.quality == "Baja"
-            assert state.format_preset == "MP4 (H.264)"
+            assert state.format_preset == "MP4 (H.264)"  # legacy XML value preserved
             assert state.encoder == "Auto"
             assert state.volume_boost == 150
             assert state.next_index == 1
