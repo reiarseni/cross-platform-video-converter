@@ -24,11 +24,9 @@ if [ "$(echo "$UBUNTU_VERSION >= 24.04" | bc -l 2>/dev/null || echo 0)" != "1" ]
     echo "[build-deb] Advertencia: Ubuntu $UBUNTU_VERSION detectado. El .deb está optimizado para 24.04+."
 fi
 
-# ── 2. Generar binario PyInstaller si no existe ─────────────────────────────
-if [ ! -f "$DIST_DIR/VideoConverter" ]; then
-    echo "[build-deb] Binario no encontrado. Ejecutando build.sh..."
-    bash "$SCRIPT_DIR/build.sh"
-fi
+# ── 2. Generar binario PyInstaller ───────────────────────────────────────────
+echo "[build-deb] Ejecutando build.sh para generar binario actualizado..."
+bash "$SCRIPT_DIR/build.sh"
 
 if [ ! -f "$DIST_DIR/VideoConverter" ]; then
     echo "[build-deb] Error: build.sh no generó el binario."

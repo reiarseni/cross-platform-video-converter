@@ -106,3 +106,47 @@ sudo dpkg -r videoconverter
 /usr/share/applications/videoconverter.desktop
 /usr/share/icons/hicolor/256x256/apps/videoconverter.png
 ```
+
+---
+
+## Compilar en Windows (Windows 10/11)
+
+Genera un binario `.exe` y un instalador NSIS.
+
+### Prerequisitos
+
+- Python 3.10+ (https://www.python.org/downloads/) — añadir al PATH
+- NSIS 3.x (https://nsis.sourceforge.io/Download) — para compilar el instalador
+
+### Generar el binario
+
+```cmd
+build-windows.bat
+```
+
+Salida: `dist\VideoConverter.exe`
+
+> `build-windows.bat` crea el entorno virtual, descarga FFmpeg desde gyan.dev, genera el icono .ico y compila con PyInstaller.
+
+### Generar el instalador .exe
+
+```cmd
+cd "C:\Program Files\NSIS"
+makensis "C:\ruta\al\proyecto\installer.nsi"
+```
+
+Salida: `dist\VideoConverter-Setup-1.0.0.exe`
+
+### Instalar
+
+Ejecuta `VideoConverter-Setup-1.0.0.exe` y sigue el asistente.
+
+- Instala en `C:\Program Files\VideoConverter\`
+- Crea acceso directo en el escritorio
+- Crea entrada en Menú Inicio
+- Incluye desinstalador
+
+### Desinstalar
+
+Desde Panel de Control > Programas > VideoConverter > Desinstalar,
+o ejecuta `C:\Program Files\VideoConverter\uninstall.exe`.
